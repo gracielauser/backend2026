@@ -2,6 +2,7 @@ const express = require('express');
 const app = express();
 //son para acceder a la variable de entorno
 const dotenv = require('dotenv');
+const cors = require('cors');
 const path = require('path')
 // Configurar CORS para permitir solicitudes desde cualquier origen 
 const corsOptions = {
