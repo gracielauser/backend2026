@@ -1,7 +1,8 @@
 const { Sequelize, DataTypes } = require('sequelize')
 const initModels = require('../modelos/init-models')
-
-const sequelize = new Sequelize('taller3', 'postgres', 'postgres', {//base de datos, usuario, contraseña
+const dotenv = require("dotenv");
+dotenv.config();
+const sequelize = new Sequelize(process.env.DATABASE_URL, {//base de datos, usuario, contraseña
     host: 'localhost',
     dialect: 'postgres',//es la -e del compando que genera los modelos
     pool: {

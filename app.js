@@ -3,6 +3,13 @@ const app = express();
 //son para acceder a la variable de entorno
 const dotenv = require('dotenv');
 const path = require('path')
+// Configurar CORS para permitir solicitudes desde cualquier origen 
+const corsOptions = {
+  origin: ['http://localhost:9000','http://localhost:9001','https://front2026.onrender.com'], // tu frontend en producción
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true // 👈 Permite enviar cookies/tokens
+};
+app.use(cors(corsOptions));
 dotenv.config();
 app.use(express.json()); // <-- necesario para leer JSON desde req.body
 app.use(express.urlencoded({ extended: true }));
