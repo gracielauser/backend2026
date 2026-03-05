@@ -45,16 +45,22 @@ const agregar=async(req,res)=>{
 }
 const modificar=async(req,res)=>{
     try {
-        const empleadoModificado = req.body
+        const empleadoModificado = JSON.parse(req.body.empleado)
+        const foto = req.files["foto"]?.[0];
+
+    if (foto) {
+      empleadoModificado.foto= foto.filename;
+    }
         await db.empleado.update(empleadoModificado,{
             where: {id_empleado: empleadoModificado.id_empleado}
         })
        return res.json({
-           mensaje: 'modificacion exitosa',
+           mensaje: empleadoModificado.nombre+' modificacion exitosa',
            nombre: empleadoModificado.nombre
        })
     } catch (error) {
         console.log(error);
+        return res.status(500).json({ mensaje: 'Error al modificar el empleado', error: error.message });
     }
 }
 const calidarCi = async(req,res) =>{

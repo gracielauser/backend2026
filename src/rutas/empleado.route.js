@@ -18,7 +18,9 @@ router.post('/agregar',upload.fields([
     { name: 'foto', maxCount: 1 }
   ]),agregar)
 router.get('/api/buscarUno/:xd',obtenerPorId)
-router.put('/modificar',modificar)
+router.put('/modificar',upload.fields([
+    { name: 'foto', maxCount: 1 }
+  ]),modificar)
 router.get('/validar-ci/:ci', calidarCi)
 module.exports = router//y esta
 // 
