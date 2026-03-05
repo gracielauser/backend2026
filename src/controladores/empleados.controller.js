@@ -27,7 +27,12 @@ const obtenerPorId = async(req,res)=>{
 }
 const agregar=async(req,res)=>{
     try {
-        const nuevoPersonal = req.body
+        const nuevoPersonal = JSON.parse(req.body.empleado)
+        const foto = req.files["foto"]?.[0];
+
+    if (foto) {
+      nuevoPersonal.foto= foto.filename;
+    }
         await db.empleado.create(nuevoPersonal)
         return res.json({
             mensaje: 'creacion exitosa',

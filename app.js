@@ -4,13 +4,16 @@ const app = express();
 const dotenv = require('dotenv');
 const cors = require('cors');
 const path = require('path')
+const morgan = require('morgan')
 // Configurar CORS para permitir solicitudes desde cualquier origen 
 const corsOptions = {
-  origin: ['http://localhost:9000','http://localhost:9001','https://front2026.onrender.com'], // tu frontend en producción
+  origin: ['*','http://localhost:4200','http://localhost:9001','https://front2026.onrender.com'], // tu frontend en producción
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true // 👈 Permite enviar cookies/tokens
 };
 app.use(cors(corsOptions));
+app.use(morgan('dev'))
+
 dotenv.config();
 app.use(express.json()); // <-- necesario para leer JSON desde req.body
 app.use(express.urlencoded({ extended: true }));
@@ -46,5 +49,4 @@ app.use((err, req, res, next) => {
 // Configurar el servidor
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en puerto${PORT}`);
 });
