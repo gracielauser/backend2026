@@ -3,7 +3,7 @@ const router = express.Router();
 const {listar,agregar,modificar,cambiarEstado} = require('../controladores/usuario.controller')
 router.get('/listar',listar);
 router.post('/agregar',agregar);
-router.post('/modificar',modificar);
+router.put('/modificar',modificar);
 router.get('/cambioEstado',cambiarEstado);
 module.exports = router
 /*const express = require('express');

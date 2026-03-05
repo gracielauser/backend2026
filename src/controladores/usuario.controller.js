@@ -1,4 +1,5 @@
 const { db } = require("../config/dataBase");
+const usuario = require("../modelos/usuario");
 
 const listar = async (req, res) => {
   try {
@@ -32,12 +33,17 @@ const agregar = async (req, res) => {// si tiene tu api asi en tu router: '/api/
 const modificar = async (req, res) => {
   try {
     const nuevoUsuario = req.body
-    const usuarioCreado = await db.usuario.update(nuevoUsuario)
-    console.log('nombre', usuarioCreado.id_usuario);
-    return res.status(200).json({ mensaje: 'usuario modficado exitosamente' })
+    console.log('usuario llegaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',nuevoUsuario);
+    if(usuario.perrsona){
+      nuevoUsuario.id_empleado=nuevoUsuario.persona.id_empleado
+    }else {
+      nuevoUsuario.id_empleado=nuevoUsuario.empleado.id_empleado
+    }
+    const usuarioCreado = await db.usuario.update(nuevoUsuario,{where:{id_usuario: nuevoUsuario.id_usuario}})
+    return res.status(200).json({ mensaje: 'usuario modficado exitosamente',id_usuario: nuevoUsuario.id_usuario })
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ mensaje: 'el usuario no se puedo modifciar inten' })
+    return res.status(500).json({ mensaje: 'el usuario no se puedo modificar' })
   }
 }
 const cambiarEstado = async (req, res) => {
