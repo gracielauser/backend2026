@@ -36,10 +36,6 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.STRING(40),
       allowNull: true
     },
-    clave: {
-      type: DataTypes.STRING(30),
-      allowNull: true
-    },
     direccion: {
       type: DataTypes.STRING(40),
       allowNull: true
@@ -49,13 +45,8 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     },
     fecha_registro: {
-      type: DataTypes.DATEONLY,
-      allowNull: false
-    },
-    tipo_registro: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 1
+      type: DataTypes.STRING(50),
+      allowNull: true
     },
     tipo_documento: {
       type: DataTypes.INTEGER,

@@ -34,13 +34,13 @@ const modificar = async (req, res) => {
   try {
     const nuevoUsuario = req.body
     console.log('usuario llegaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',nuevoUsuario);
-    if(usuario.perrsona){
+    if(nuevoUsuario.persona){// sei llega por crear
       nuevoUsuario.id_empleado=nuevoUsuario.persona.id_empleado
     }else {
       nuevoUsuario.id_empleado=nuevoUsuario.empleado.id_empleado
     }
     const usuarioCreado = await db.usuario.update(nuevoUsuario,{where:{id_usuario: nuevoUsuario.id_usuario}})
-    return res.status(200).json({ mensaje: 'usuario modficado exitosamente',id_usuario: nuevoUsuario.id_usuario })
+    return res.status(200).json({ mensaje: 'usuario modificado exitosamente',id_usuario: nuevoUsuario.id_usuario })
   } catch (error) {
     console.log(error);
     return res.status(500).json({ mensaje: 'el usuario no se puedo modificar' })
@@ -66,10 +66,10 @@ const cambiarEstado = async (req, res) => {
         where: { id_usuario: id }
       }
     )
-    return res.status(200).json({ mensaje: 'cambio exitoso' })
+    return res.status(200).json({ mensaje: 'cambio de estado exitoso' })
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ mensaje: 'nose puedo cambiar estado' })
+    return res.status(500).json({ mensaje: 'no se pudo cambiar estado' })
   }
 }
 module.exports = { listar, agregar, modificar, cambiarEstado }
