@@ -49,9 +49,11 @@ function initModels(sequelize) {
   var venta = _venta(sequelize, DataTypes);
 
   rol.belongsToMany(usuario, { through: usu_rol, foreignKey: "id_rol", otherKey: "id_usuario" });
-  usuario.belongsToMany(rol, { through: usu_rol, foreignKey: "id_usuario", otherKey: "id_rol" });
-  detalle_carrito.belongsTo(carrito, { foreignKey: "id_carrito"});
-  carrito.hasMany(detalle_carrito, { foreignKey: "id_carrito"});
+  usuario.belongsToMany(rol, {through: usu_rol, foreignKey: "id_usuario", otherKey: "id_rol" });
+  detalle_carrito.belongsTo(carrito, {foreignKey: "id_carrito"});
+  carrito.hasMany(detalle_carrito, {foreignKey: "id_carrito"});
+  categoria.belongsTo(categoria, {foreignKey: "id_categoria_padre"});
+  categoria.hasMany(categoria, { as: "subCategoria", foreignKey: "id_categoria_padre"});
   producto.belongsTo(categoria, { foreignKey: "id_categoria"});
   categoria.hasMany(producto, { foreignKey: "id_categoria"});
   carrito.belongsTo(cliente, { foreignKey: "id_cliente"});

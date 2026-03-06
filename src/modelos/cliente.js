@@ -44,12 +44,12 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.STRING(40),
       allowNull: true
     },
-    fecha_registro: {
-      type: DataTypes.STRING(50),
-      allowNull: true
-    },
     tipo_documento: {
       type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    fecha_registro: {
+      type: DataTypes.STRING(50),
       allowNull: true
     }
   }, {

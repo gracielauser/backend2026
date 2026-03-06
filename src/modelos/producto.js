@@ -68,14 +68,6 @@ module.exports = function(sequelize, DataTypes) {
         key: 'id_unidad_medida'
       }
     },
-    id_proveedor: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'proveedor',
-        key: 'id_proveedor'
-      }
-    },
     fecha_registro: {
       type: DataTypes.DATEONLY,
       allowNull: true
