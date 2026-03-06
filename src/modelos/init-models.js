@@ -88,8 +88,6 @@ function initModels(sequelize) {
   producto.hasMany(inventario, { foreignKey: "id_producto"});
   compra.belongsTo(proveedor, { foreignKey: "id_proveedor"});
   proveedor.hasMany(compra, { foreignKey: "id_proveedor"});
-  producto.belongsTo(proveedor, { foreignKey: "id_proveedor"});
-  proveedor.hasMany(producto, { foreignKey: "id_proveedor"});
   usu_rol.belongsTo(rol, { foreignKey: "id_rol"});
   rol.hasMany(usu_rol, { foreignKey: "id_rol"});
   producto.belongsTo(unidad_medida, { foreignKey: "id_unidad_medida"});

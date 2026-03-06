@@ -10,8 +10,6 @@ const listar = async (req, res)=>{
             { model: db.categoria },
             { model: db.marca },
             { model: db.unidad_medida },
-            { model: db.proveedor }
-
             ]
         })
         return res.status(200).json(productos)
