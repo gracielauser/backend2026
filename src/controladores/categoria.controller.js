@@ -4,6 +4,13 @@ const { db } = require("../config/dataBase");
 const listar = async (req, res)=>{
     try {
         const categorias = await db.categoria.findAll({
+              where: {
+                  id_categoria_padre: null
+              },
+              include: [{
+                  model: db.categoria,
+                  as: 'subCategoria'
+              }],
               order: [['id_categoria','DESC']]
         })
         return res.json(categorias)

@@ -12,7 +12,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false
     },
     codigo: {
-      type: DataTypes.STRING(8),
+      type: DataTypes.STRING(20),
       allowNull: false
     },
     foto: {

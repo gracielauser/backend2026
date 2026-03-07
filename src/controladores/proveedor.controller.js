@@ -15,8 +15,8 @@ const listar = async (req, res)=>{
 const agregar= async (req,res)=>{
     try {
         const newProveedor=req.body
-        await db.proveedor.create(newProveedor)
-        return res.json('creado exitosamente')
+        const nuevoProve = await db.proveedor.create(newProveedor)
+        return res.json(nuevoProve)
     } catch (error) {
         console.log(error);
         return res.json(error)

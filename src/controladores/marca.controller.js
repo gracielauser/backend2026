@@ -14,8 +14,8 @@ const listar = async (req, res)=>{
 const agregar= async (req,res)=>{
     try {
         const newMarca=req.body
-        await db.marca.create(newMarca)
-        return res.json('creado exitosamente')
+        const nuevaMarca = await db.marca.create(newMarca)
+        return res.json(nuevaMarca)
     } catch (error) {
         console.log(error);
         return res.json(error)
