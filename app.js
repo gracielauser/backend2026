@@ -7,7 +7,7 @@ const path = require('path')
 const morgan = require('morgan')
 // Configurar CORS para permitir solicitudes desde cualquier origen 
 const corsOptions = {
-  origin: ['*','http://localhost:4200','http://localhost:9001','https://front2026.onrender.com','https://unimmersed-gonidial-bell.ngrok-free.dev'], // tu frontend en producción
+  origin: ['*','http://localhost:4200','http://localhost:9001','https://front2026.onrender.com','https://b47blm-ip-181-115-161-172.tunnelmole.net'], // tu frontend en producción
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true // 👈 Permite enviar cookies/tokens
 };
