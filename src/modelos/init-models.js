@@ -72,8 +72,6 @@ function initModels(sequelize) {
   marca.hasMany(producto, { foreignKey: "id_marca"});
   detpedido.belongsTo(pedido, { foreignKey: "id_pedido"});
   pedido.hasMany(detpedido, { foreignKey: "id_pedido"});
-  venta.belongsTo(pedido, { foreignKey: "id_pedido"});
-  pedido.hasMany(venta, { foreignKey: "id_pedido"});
   det_compra.belongsTo(producto, { foreignKey: "id_producto"});
   producto.hasMany(det_compra, { foreignKey: "id_producto"});
   det_venta.belongsTo(producto, { foreignKey: "id_producto"});

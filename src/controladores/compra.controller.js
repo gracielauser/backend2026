@@ -25,9 +25,18 @@ const agregar= async (req,res)=>{
         const newCompra=req.body
         console.log('COMPRAAAAAAAAAAA',newCompra);
         console.log(newCompra);
-        
         const nCompra = await db.compra.create(newCompra)
-        await db.compra.update({nro_compra: 'C00'+nCompra.id_compra},{where: {id_compra: nCompra.id_compra}})
+        for(det of newCompra.detalle){
+            det.id_compra = nCompra.id_compra
+            if(det.producto.id_producto[0] === 'N'){
+                const nuevoProducto = await db.producto.create(det.producto)
+                det.id_producto = nuevoProducto.id_producto
+            }else{
+                det.id_producto = det.producto.id_producto
+            }
+        }
+        await db.det_compra.bulkCreate(newCompra.detalle)
+        // await db.compra.update({nro_compra: 'C00'+nCompra.id_compra},{where: {id_compra: nCompra.id_compra}})
         return res.json(nCompra)
     } catch (error) {
         console.log(error);

@@ -8,8 +8,8 @@ module.exports = function(sequelize, DataTypes) {
       primaryKey: true
     },
     fecha_registro: {
-      type: DataTypes.DATEONLY,
-      allowNull: false
+      type: DataTypes.STRING(50),
+      allowNull: true
     },
     monto_total: {
       type: DataTypes.DOUBLE,
@@ -53,14 +53,7 @@ module.exports = function(sequelize, DataTypes) {
         key: 'id_cliente'
       }
     },
-    id_pedido: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'pedido',
-        key: 'id_pedido'
-      }
-    },
+
     nro_venta: {
       type: DataTypes.STRING(10),
       allowNull: false,

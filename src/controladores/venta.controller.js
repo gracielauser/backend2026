@@ -50,7 +50,9 @@ const agregar = async (req, res) => {
             await db.det_venta.create(det)
             await db.producto.update({stock: stockNew},{where: {id_producto: det.id_producto}})
         }
-        return res.json('creado exitosamente')
+        console.log('ventaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',venta);
+        
+        return res.json(venta)
     } catch (error) {
         console.log(error);
         return res.json(error)
@@ -82,6 +84,7 @@ const anular = async (req, res) =>{
       
     }
 }
+
 module.exports = {
     agregar,
     listar,

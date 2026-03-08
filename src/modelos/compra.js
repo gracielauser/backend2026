@@ -17,7 +17,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: 1
     },
     fecha_registro: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.STRING(50),
       allowNull: false
     },
     id_proveedor: {
@@ -37,12 +37,12 @@ module.exports = function(sequelize, DataTypes) {
       }
     },
     nro_compra: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(20),
       allowNull: true,
       unique: "compra_nro_compra_key"
     },
     fecha_recepcion: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.STRING(50),
       allowNull: true
     }
   }, {

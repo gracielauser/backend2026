@@ -69,7 +69,7 @@ module.exports = function(sequelize, DataTypes) {
       }
     },
     fecha_registro: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.STRING(50),
       allowNull: true
     }
   }, {
