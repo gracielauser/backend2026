@@ -222,7 +222,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
     const descuento = Number(venta.descuento) || 0;
     const monto_total = Number(venta.monto_total) || Number(venta.monto) || subtotal - descuento;
     const impuesto = Number(factura?.impuesto) || 0;
-    const totalConImpuesto = monto_total + impuesto;
+    const totalConImpuesto = monto_total - descuento;
     
     // Datos de factura (con placeholders si no existen en BD)
     const nroFactura = factura?.nro_factura || venta.nro_venta || "0";
@@ -466,7 +466,7 @@ const numeroALiteral = (numero) => {
     return '';
   };
 
-  const parteEntera = Math.floor(numero);
+  let parteEntera = Math.floor(numero);
   const parteDecimal = Math.round((numero - parteEntera) * 100);
 
   if (parteEntera === 0) {

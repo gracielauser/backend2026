@@ -61,7 +61,7 @@ const agregar = async (req, res) => {
             })
         }
         
-        return res.json(ventaConDetalles)
+        return res.json(venta)
     } catch (error) {
         console.log(error);
         return res.json(error)
