@@ -2,9 +2,18 @@ const { Sequelize, DataTypes } = require('sequelize')
 const initModels = require('../modelos/init-models')
 const dotenv = require("dotenv");
 dotenv.config();
+const isProduction = process.env.NODE_ENV === 'production';
 const sequelize = new Sequelize(process.env.DATABASE_URL, {//base de datos, usuario, contraseña
     host: 'localhost',
     dialect: 'postgres',//es la -e del compando que genera los modelos
+     dialectOptions: isProduction
+      ? {
+          ssl: {
+            require: true,
+            rejectUnauthorized: false
+          }
+        }
+      : {},
     pool: {
         max: 5,//El número máximo de conexiones en el pool.
         min: 0,//El número mínimo de conexiones en el pool.
