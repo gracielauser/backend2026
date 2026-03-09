@@ -20,6 +20,8 @@ const listar = async (req, res) => {
                 },
                 {
                     model: db.cliente
+                },{
+                    model: db.factura
                 }
             ]
         });
@@ -51,8 +53,15 @@ const agregar = async (req, res) => {
             await db.producto.update({stock: stockNew},{where: {id_producto: det.id_producto}})
         }
         console.log('ventaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',venta);
+        if(venta.tipo_venta==2){
+            await db.factura.create({
+                id_venta: venta.id_venta,
+                impuesto: (venta.monto_total-venta.descuento)*0.16,
+                total: venta.monto_total-venta.descuento
+            })
+        }
         
-        return res.json(venta)
+        return res.json(ventaConDetalles)
     } catch (error) {
         console.log(error);
         return res.json(error)

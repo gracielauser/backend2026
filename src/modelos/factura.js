@@ -7,10 +7,6 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false,
       primaryKey: true
     },
-    fecha_emision: {
-      type: DataTypes.DATEONLY,
-      allowNull: false
-    },
     impuesto: {
       type: DataTypes.DOUBLE,
       allowNull: true
