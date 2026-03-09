@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
-const { db } = require("../config/dataBase");
+const { db } = require("../../config/dataBase");
 const PdfPrinter = require("pdfmake");
-const fonts = require("../utils/pdfFonts");
-const convertImageToBase64 = require("../utils/imageToBase64");
+const fonts = require("../../utils/pdfFonts");
+const convertImageToBase64 = require("../../utils/imageToBase64");
 const { Op, Sequelize, literal } = require("sequelize");
 
 const ventaNota = async (req, res) => {

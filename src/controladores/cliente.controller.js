@@ -1,4 +1,5 @@
 const { db } = require("../config/dataBase");
+const cliente = require("../modelos/cliente");
 
 const listar = async (req, res)=>{
     try {
@@ -16,8 +17,8 @@ const agregar= async (req,res)=>{
         const newCliente=req.body
         console.log(newCliente);
         
-        await db.cliente.create(newCliente)
-        return res.json('creado exitosamente')
+        const clienteCreado = await db.cliente.create(newCliente)
+        return res.json(clienteCreado)
     } catch (error) {
         console.log(error);
         return res.json(error)
@@ -26,15 +27,18 @@ const agregar= async (req,res)=>{
 const modificar=async(req,res)=>{
     try {
         const clienteModificado = req.body
-        await db.cliente.update(clienteModificado,{
+        const modCliente = await db.cliente.update(clienteModificado,{
             where: {id_cliente: clienteModificado.id_cliente}
         })
        return res.json({
            mensaje: 'modificacion exitosa',
-           nombre: clienteModificado.nombre
+           nombre: clienteModificado.nombre,
+           cliente: modCliente
+
        })
     } catch (error) {
         console.log(error);
+        return res.json(error)
     }
 }
 module.exports = {

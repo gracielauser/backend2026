@@ -39,6 +39,7 @@ app.use('/api/det_compra', require('./src/rutas/det_compra.route'))
 app.use('/api/det_venta', require('./src/rutas/det_venta.route'))
 
 app.use('/api/reporte-venta', require('./src/rutas/reporteVenta.route'))
+app.use('/api/reporte-producto', require('./src/rutas/reporteProducto.route'))
 //  Esto permite acceder a las imágenes por URL:
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Middleware de manejo de errores
