@@ -37,7 +37,7 @@ const reporteInventario = async (req, res) => {
     };
 
     const printer = new PdfPrinter(fonts);
-    const logo = await convertImageToBase64("../assets/logo.png");
+    const logo = await convertImageToBase64("../assets/logo2.jpeg");
 
     const formatMoney = (n) =>
       typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);

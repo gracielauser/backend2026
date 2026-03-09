@@ -67,7 +67,7 @@ const generarNotaVenta = async (venta, res) => {
     };
 
     const printer = new PdfPrinter(fonts);
-    const logo = await convertImageToBase64("../assets/logo.png");
+    const logo = await convertImageToBase64("../assets/logo2.jpeg");
 
     const formatMoney = (n) =>
       typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
@@ -201,7 +201,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
     };
 
     const printer = new PdfPrinter(fonts);
-    const logo = await convertImageToBase64("../assets/logo.png");
+    const logo = await convertImageToBase64("../assets/logo2.jpeg");
 
     const formatMoney = (n) =>
       typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
@@ -905,7 +905,7 @@ const reporteVentasResumido = async (req, res) => {
     colWidths.push(50); // Estado
     
     const printer = new PdfPrinter(fonts);
-    const logo = convertImageToBase64('../assets/logo.png');
+    const logo = convertImageToBase64('../assets/logo2.jpeg');
     
     const filtroLines = [];
     if (desde) filtroLines.push(`Desde: ${desde}`);
@@ -1104,7 +1104,7 @@ const reporteVentasDetallado = async (req, res) => {
     });
     
     const printer = new PdfPrinter(fonts);
-    const logo = convertImageToBase64('../assets/logo.png');
+    const logo = convertImageToBase64('../assets/logo2.jpeg');
     
     const filtroLines = [];
     if (desde) filtroLines.push(`Desde: ${desde}`);
