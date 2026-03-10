@@ -67,8 +67,8 @@ const reporteInventario = async (req, res) => {
         { text: producto.unidad_medidum ? safeText(producto.unidad_medidum.abreviatura || producto.unidad_medidum.nombre) : "N/A", fontSize: 8 },
         { text: producto.stock || 0, fontSize: 8, alignment: 'center' },
         { text: producto.stock_minimo || 0, fontSize: 8, alignment: 'center' },
-        { text: `$${formatMoney(producto.precio_compra)}`, fontSize: 8, alignment: 'right' },
-        { text: `$${formatMoney(producto.precio_venta)}`, fontSize: 8, alignment: 'right' },
+        { text: `Bs ${formatMoney(producto.precio_compra)}`, fontSize: 8, alignment: 'right' },
+        { text: `Bs ${formatMoney(producto.precio_venta)}`, fontSize: 8, alignment: 'right' },
         { text: producto.estado === 1 ? "Activo" : "Inactivo", fontSize: 8, alignment: 'center' }
       ]);
     });
@@ -154,15 +154,15 @@ const reporteInventario = async (req, res) => {
               ],
               [
                 { text: 'Valor Total Inventario (Precio Compra):', bold: true },
-                { text: `$${formatMoney(valorInventarioCompra)}`, alignment: 'right', color: 'blue' }
+                { text: `Bs ${formatMoney(valorInventarioCompra)}`, alignment: 'right', color: 'blue' }
               ],
               [
                 { text: 'Valor Total Inventario (Precio Venta):', bold: true },
-                { text: `$${formatMoney(valorInventarioVenta)}`, alignment: 'right', color: 'green' }
+                { text: `Bs ${formatMoney(valorInventarioVenta)}`, alignment: 'right', color: 'green' }
               ],
               [
                 { text: 'Ganancia Potencial:', bold: true },
-                { text: `$${formatMoney(valorInventarioVenta - valorInventarioCompra)}`, alignment: 'right', color: 'orange' }
+                { text: `Bs ${formatMoney(valorInventarioVenta - valorInventarioCompra)}`, alignment: 'right', color: 'orange' }
               ]
             ]
           },

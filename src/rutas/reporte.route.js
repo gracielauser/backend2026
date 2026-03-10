@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const {agregar,listar} = require('../controladores/reporte.controller')
-//   /listar
-router.get('/listar',listar)
-router.post('/agregar',agregar)
+const { reporteFacturas } = require('../controladores/reportes/reportesFactura');
+
+// Reporte de facturas (ventas facturadas)
+router.post('/facturas', reporteFacturas);
 
 module.exports = router

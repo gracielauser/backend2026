@@ -208,7 +208,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
 
     // Datos de la empresa emisora (placeholders - ajustar según necesidad)
     const empresaNIT = "1234567890"; // NIT de la empresa
-    const empresaNombre = "TARIJASPORT SRL";
+    const empresaNombre = "Auto Accesorios Pinedo SRL";
     const empresaDireccion = "Av. Principal #123, Tarija - Bolivia";
     const empresaTelefono = "+591 4-1234567";
     
@@ -586,7 +586,7 @@ const reporteVentasResumido = async (req, res) => {
       hasta,
       usuario = '',
       id_usuario,
-      nombreSistema = 'TarijaSport',
+      nombreSistema = 'Auto Accesorios Pinedo',
       estado,
       id_cliente,
       tipo_venta,
@@ -950,7 +950,7 @@ const reporteVentasResumido = async (req, res) => {
       {
         stack: [
           { text: `Generado por: ${usuario || 'desconocido'}`, alignment: 'right' },
-          { text: `Sistema: ${nombreSistema || 'TarijaSport'}`, alignment: 'right' },
+          { text: `Sistema: ${nombreSistema || 'Auto Accesorios Pinedo'}`, alignment: 'right' },
           { text: `Fecha: ${new Date().toLocaleString('es-BO')}`, alignment: 'right' }
         ],
         width: 160
@@ -978,7 +978,7 @@ const reporteVentasResumido = async (req, res) => {
       footer: (currentPage, pageCount) => ({
         columns: [
           { text: `Generado: ${new Date().toLocaleString('es-BO')} por: ${usuario || 'desconocido'}`, alignment: 'left', margin: [40, 0, 0, 0] },
-          { text: `${nombreSistema || 'TarijaSport'} - Página ${currentPage} de ${pageCount}`, alignment: 'right', margin: [0, 0, 40, 0] }
+          { text: `${nombreSistema || 'Auto Accesorios Pinedo'} - Página ${currentPage} de ${pageCount}`, alignment: 'right', margin: [0, 0, 40, 0] }
         ]
       }),
       styles: { titulo: { fontSize: 16, bold: true }, filtro: { fontSize: 8 } }
@@ -1009,7 +1009,7 @@ const reporteVentasDetallado = async (req, res) => {
       hasta,
       usuario = '',
       id_usuario,
-      nombreSistema = 'TarijaSport',
+      nombreSistema = 'Auto Accesorios Pinedo',
       estado,
       id_cliente,
       tipo_venta
@@ -1149,7 +1149,7 @@ const reporteVentasDetallado = async (req, res) => {
       {
         stack: [
           { text: `Generado por: ${usuario || 'desconocido'}`, alignment: 'right' },
-          { text: `Sistema: ${nombreSistema || 'TarijaSport'}`, alignment: 'right' },
+          { text: `Sistema: ${nombreSistema || 'Auto Accesorios Pinedo'}`, alignment: 'right' },
           { text: `Fecha: ${new Date().toLocaleString('es-BO')}`, alignment: 'right' }
         ],
         width: 160
@@ -1356,7 +1356,7 @@ const reporteVentasDetallado = async (req, res) => {
       footer: (currentPage, pageCount) => ({
         columns: [
           { text: `Generado: ${new Date().toLocaleString('es-BO')} por: ${usuario || 'desconocido'}`, alignment: 'left', margin: [40, 0, 0, 0] },
-          { text: `${nombreSistema || 'TarijaSport'} - Página ${currentPage} de ${pageCount}`, alignment: 'right', margin: [0, 0, 40, 0] }
+          { text: `${nombreSistema || 'Auto Accesorios Pinedo'} - Página ${currentPage} de ${pageCount}`, alignment: 'right', margin: [0, 0, 40, 0] }
         ]
       }),
       styles: { 
