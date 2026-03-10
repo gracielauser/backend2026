@@ -85,6 +85,24 @@ const anular = async (req, res) =>{
     try {
         const idVenta = req.params.id_venta
         await db.venta.update({estado : 2}, {where: {id_venta: idVenta}})
+        //buscar la venta actualizada y de cada detalle de venta actualizar el stock del producto
+        const ventaAnulada = await db.venta.findByPk(idVenta, {
+            include: [
+                {
+                    model: db.det_venta,
+                    include: [
+                        {
+                            model: db.producto,
+                        }
+                    ]
+                }
+            ]
+        });
+        for (const det of ventaAnulada.det_venta) {
+            const productoActual = det.producto;
+            const stockNew = productoActual.stock + det.cantidad;
+            await db.producto.update({ stock: stockNew }, { where: { id_producto: productoActual.id_producto } });
+        }
         return res.json('Anulado con exito')
     } catch (error) {
         console.log(
