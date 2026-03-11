@@ -477,17 +477,24 @@ const reporteGananciasProducto = async (req, res) => {
       attributes: [
         'id_producto',
         [Sequelize.fn('SUM', Sequelize.col('det_venta.cantidad')), 'cantidad_vendida'],
-        [Sequelize.literal(`
-          SUM(
-            (det_venta.precio_unitario - det_venta.precio_compra) * det_venta.cantidad 
-            * ((ventum.monto_total - ventum.descuento) / NULLIF(ventum.monto_total, 0))
-            - CASE 
-                WHEN ventum.tipo_venta = 2 
-                THEN ((ventum.monto_total - ventum.descuento) * 0.03) * (det_venta.sub_total / NULLIF(ventum.monto_total, 0))
-                ELSE 0
-              END
-          )
-        `), 'ganancia_neta']
+    
+      [Sequelize.fn('SUM',
+  Sequelize.literal(`
+    CASE 
+      WHEN "ventum"."tipo_venta" = 2 
+      THEN (
+        (("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
+          * ((("ventum"."monto_total" - "ventum"."descuento")::numeric / "ventum"."monto_total"))
+        )
+        - ((("ventum"."monto_total" - "ventum"."descuento") * 0.03) * ("det_venta"."sub_total" / "ventum"."monto_total"))
+      )
+      ELSE (
+        ("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
+          * ((("ventum"."monto_total" - "ventum"."descuento")::numeric / "ventum"."monto_total"))
+      )
+    END
+  `)
+), 'ganancia_neta']
       ],
       include: [
         {
@@ -560,7 +567,7 @@ const reporteGananciasProducto = async (req, res) => {
       { text: 'Marca', bold: true, fillColor: '#dff2e6', fontSize: 9 },
       { text: 'Cant. Vendida', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'center' },
       { text: 'Stock Actual', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'center' },
-      { text: 'Ganancia Neta', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' },
+      { text: 'Ganancia Neta por Ventas', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' },
       { text: 'Beneficio Bruto', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' }
     ];
     tableBody.push(headerRow);

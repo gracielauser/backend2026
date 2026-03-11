@@ -6,6 +6,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const sequelize = new Sequelize(process.env.DATABASE_URL, {//base de datos, usuario, contraseña
     host: 'localhost',
     dialect: 'postgres',//es la -e del compando que genera los modelos
+    logging: console.log,
      dialectOptions: isProduction
       ? {
           ssl: {
