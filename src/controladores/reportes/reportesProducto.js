@@ -199,6 +199,517 @@ const reporteInventario = async (req, res) => {
   }
 };
 
+// Reporte de catálogo de productos con fotos
+const reporteCatalogoProductos = async (req, res) => {
+  try {
+    const {
+      id_categoria,
+      id_marca,
+      codigo,
+      estado,
+      stock = false,
+      usuario = '',
+      nombreSistema = 'Auto Accesorios Pinedo'
+    } = req.body || {};
+
+    console.log('Reporte catálogo productos - parámetros:', req.body);
+
+    // Construir filtros
+    const whereProducto = {};
+
+    // Filtro por categoría
+    if (id_categoria && String(id_categoria).trim() !== '') {
+      whereProducto.id_categoria = parseInt(id_categoria);
+    }
+
+    // Filtro por marca
+    if (id_marca && String(id_marca).trim() !== '') {
+      whereProducto.id_marca = parseInt(id_marca);
+    }
+
+    // Filtro por código (parcial, case-insensitive)
+    if (codigo && String(codigo).trim() !== '') {
+      whereProducto.codigo = {
+        [Op.like]: `%${String(codigo).trim()}%`
+      };
+    }
+
+    // Filtro por estado
+    if (estado !== undefined && String(estado).trim() !== '') {
+      whereProducto.estado = parseInt(estado);
+    }
+
+    // Filtro por stock
+    if (stock === true || stock === 'true') {
+      whereProducto.stock = {
+        [Op.gt]: 0
+      };
+    }
+
+    console.log('Where clause productos:', whereProducto);
+
+    // Obtener productos con sus relaciones
+    const productosRaw = await db.producto.findAll({
+      where: whereProducto,
+      include: [
+        { model: db.categoria, attributes: ['id_categoria', 'nombre'] },
+        { model: db.marca, attributes: ['id_marca', 'nombre'] },
+        { model: db.unidad_medida, attributes: ['id_unidad_medida', 'nombre', 'abreviatura'] }
+      ],
+      order: [
+        ['codigo', 'ASC'],
+        ['nombre', 'ASC']
+      ]
+    });
+
+    if (!productosRaw || productosRaw.length === 0) {
+      return res.status(404).send("No se encontraron productos con los criterios especificados");
+    }
+
+    const productos = productosRaw.map(p => p.get ? p.get({ plain: true }) : p);
+
+    // Helper para texto seguro
+    const safeText = (v) => {
+      if (v === undefined || v === null) return "";
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+      if (typeof v === "object") {
+        return v.nombre || v.NOMBRE || v.id || JSON.stringify(v);
+      }
+      return String(v);
+    };
+
+    const formatMoney = (n) =>
+      typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
+
+    // Preparar contenido del PDF
+    const content = [];
+    const printer = new PdfPrinter(fonts);
+    const logo = await convertImageToBase64("../assets/logo2.jpeg");
+
+    // Construir filas de productos (3 productos por fila)
+    for (let i = 0; i < productos.length; i += 3) {
+      const producto1 = productos[i];
+      const producto2 = productos[i + 1];
+      const producto3 = productos[i + 2];
+
+      const buildProductoCard = (producto) => {
+        if (!producto) return { text: '' };
+
+        // Intentar cargar la foto del producto
+        let fotoProducto = null;
+        if (producto.foto) {
+          try {
+            fotoProducto = convertImageToBase64(`../../../uploads/${producto.foto}`);
+          } catch (error) {
+            console.log(`No se pudo cargar la foto: ${producto.foto}`);
+            fotoProducto = null;
+          }
+        }
+
+        // Columna de la foto
+        const columnaFoto = fotoProducto 
+          ? { image: fotoProducto, width: 50, height: 50, margin: [0, 0, 5, 0] }
+          : { 
+              canvas: [
+                {
+                  type: 'rect',
+                  x: 0,
+                  y: 0,
+                  w: 50,
+                  h: 50,
+                  lineColor: '#ddd',
+                  lineWidth: 1
+                }
+              ],
+              margin: [0, 0, 5, 0]
+            };
+
+        // Columna de información
+        const columnaInfo = {
+          stack: [
+            { text: `${safeText(producto.codigo)}`, fontSize: 6, bold: true, color: '#666' },
+            { text: `${safeText(producto.nombre)}`, fontSize: 8, bold: true, margin: [0, 2, 0, 3] },
+            { text: `${producto.categorium ? safeText(producto.categorium.nombre) : 'N/A'}`, fontSize: 6, margin: [0, 1, 0, 1] },
+            { text: `${producto.marca ? safeText(producto.marca.nombre) : 'N/A'}`, fontSize: 6, margin: [0, 1, 0, 1] },
+            { text: `${producto.unidad_medidum ? safeText(producto.unidad_medidum.nombre) : 'N/A'}`, fontSize: 6, margin: [0, 1, 0, 1] }
+          ],
+          width: '*'
+        };
+
+        // Layout horizontal: foto a la izquierda, info a la derecha
+        return {
+          columns: [
+            columnaFoto,
+            columnaInfo
+          ],
+          margin: [3, 3, 3, 3]
+        };
+      };
+
+      // Crear una fila con 3 productos
+      const row = {
+        columns: [
+          { 
+            width: '31%', 
+            stack: [buildProductoCard(producto1)],
+            fillColor: '#f9f9f9'
+          },
+          { width: '3%', text: '' }, // Espaciador
+          { 
+            width: '31%', 
+            stack: producto2 ? [buildProductoCard(producto2)] : [],
+            fillColor: producto2 ? '#f9f9f9' : null
+          },
+          { width: '3%', text: '' }, // Espaciador
+          { 
+            width: '31%', 
+            stack: producto3 ? [buildProductoCard(producto3)] : [],
+            fillColor: producto3 ? '#f9f9f9' : null
+          }
+        ],
+        margin: [0, 5, 0, 5]
+      };
+
+      content.push(row);
+
+      // Línea separadora
+      if (i + 3 < productos.length) {
+        content.push({
+          canvas: [{
+            type: 'line',
+            x1: 0,
+            y1: 0,
+            x2: 520,
+            y2: 0,
+            lineWidth: 0.5,
+            lineColor: '#ddd'
+          }],
+          margin: [0, 3, 0, 3]
+        });
+      }
+    }
+
+    // Construir líneas de filtros
+    const filtroLines = [];
+    if (id_categoria) {
+      const cat = productos.find(p => p.id_categoria == id_categoria);
+      if (cat && cat.categorium) {
+        filtroLines.push(`Categoría: ${cat.categorium.nombre}`);
+      }
+    }
+    if (id_marca) {
+      const prod = productos.find(p => p.id_marca == id_marca);
+      if (prod && prod.marca) {
+        filtroLines.push(`Marca: ${prod.marca.nombre}`);
+      }
+    }
+    if (codigo) filtroLines.push(`Código: ${codigo}`);
+    if (estado !== undefined && estado !== null) {
+      filtroLines.push(`Estado: ${estado == 1 ? 'Activos' : 'Inactivos'}`);
+    }
+    if (stock === true || stock === 'true') {
+      filtroLines.push('Solo con stock disponible');
+    }
+    if (!filtroLines.length) filtroLines.push('Todos los productos');
+
+    // Estructura del PDF
+    const docDefinition = {
+      pageSize: 'A4',
+      pageOrientation: 'portrait',
+      pageMargins: [36, 110, 36, 54],
+      header: {
+        margin: [40, 40, 40, 20],
+        columns: [
+          { image: logo, width: 60 },
+          {
+            stack: [
+              { text: 'Catálogo de Productos', fontSize: 16, bold: true },
+              ...filtroLines.map(l => ({ text: l, fontSize: 8 }))
+            ],
+            margin: [10, 0, 0, 0],
+            width: '*'
+          },
+          {
+            stack: [
+              { text: `Generado por: ${usuario || 'desconocido'}`, alignment: 'right', fontSize: 8 },
+              { text: `Sistema: ${nombreSistema}`, alignment: 'right', fontSize: 8 },
+              { text: `Fecha: ${new Date().toLocaleString('es-BO')}`, alignment: 'right', fontSize: 8 }
+            ],
+            width: 150
+          }
+        ]
+      },
+      footer: (currentPage, pageCount) => ({
+        columns: [
+          { text: `Total de productos: ${productos.length}`, alignment: 'left', margin: [40, 0, 0, 0], fontSize: 8 },
+          { text: `${nombreSistema} - Página ${currentPage} de ${pageCount}`, alignment: 'right', margin: [0, 0, 40, 0], fontSize: 8 }
+        ]
+      }),
+      content: content,
+      defaultStyle: { fontSize: 9 }
+    };
+
+    const pdfDoc = printer.createPdfKitDocument(docDefinition);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=catalogo_productos_${Date.now()}.pdf`);
+
+    pdfDoc.pipe(res);
+    pdfDoc.end();
+
+  } catch (error) {
+    console.error("Error en reporteCatalogoProductos:", error);
+    res.status(500).send("Error al generar el catálogo: " + error.message);
+  }
+};
+
+// Reporte de ganancias por producto
+const reporteGananciasProducto = async (req, res) => {
+  try {
+    const {
+      usuario = '',
+      nombreSistema = 'Auto Accesorios Pinedo'
+    } = req.body || {};
+
+    console.log('Reporte de ganancias por producto - parámetros:', req.body);
+
+    // Obtener detalles de venta agrupados por producto con ganancias calculadas
+    const resultados = await db.det_venta.findAll({
+      attributes: [
+        'id_producto',
+        [Sequelize.fn('SUM', Sequelize.col('det_venta.cantidad')), 'cantidad_vendida'],
+        [Sequelize.literal(`
+          SUM(
+            (det_venta.precio_unitario - det_venta.precio_compra) * det_venta.cantidad 
+            * ((ventum.monto_total - ventum.descuento) / NULLIF(ventum.monto_total, 0))
+            - CASE 
+                WHEN ventum.tipo_venta = 2 
+                THEN ((ventum.monto_total - ventum.descuento) * 0.03) * (det_venta.sub_total / NULLIF(ventum.monto_total, 0))
+                ELSE 0
+              END
+          )
+        `), 'ganancia_neta']
+      ],
+      include: [
+        {
+          model: db.venta,
+          attributes: [],
+          where: { estado: 1 },
+          required: true
+        },
+        {
+          model: db.producto,
+          attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock'],
+          where: { estado: 1 },
+          required: true,
+          include: [
+            {
+              model: db.categoria,
+              attributes: ['nombre'],
+              required: false
+            },
+            {
+              model: db.marca,
+              attributes: ['nombre'],
+              required: false
+            }
+          ]
+        }
+      ],
+      group: ['det_venta.id_producto', 'producto.id_producto', 'producto.codigo', 'producto.nombre', 
+              'producto.precio_compra', 'producto.precio_venta', 'producto.stock', 
+              'producto->categorium.id_categoria', 'producto->categorium.nombre',
+              'producto->marca.id_marca', 'producto->marca.nombre'],
+      order: [[Sequelize.literal('ganancia_neta'), 'DESC']],
+      raw: true,
+      nest: true
+    });
+
+    console.log('Resultados obtenidos:', resultados.length);
+    if (resultados.length > 0) {
+      console.log('Primer resultado:', JSON.stringify(resultados[0]));
+    }
+
+    if (!resultados || resultados.length === 0) {
+      return res.status(404).send("No se encontraron datos de ganancias");
+    }
+
+    // Helper para formatear números
+    const formatNumber = (num) => {
+      const n = parseFloat(num) || 0;
+      return n.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const safeText = (v) => {
+      if (v === undefined || v === null) return "";
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+      return String(v);
+    };
+
+    const printer = new PdfPrinter(fonts);
+    const logo = await convertImageToBase64("../assets/logo2.jpeg");
+
+    // Preparar tabla
+    const tableBody = [];
+    
+    // Header
+    const headerRow = [
+      { text: 'Nro', bold: true, fillColor: '#dff2e6', fontSize: 9 },
+      { text: 'Código', bold: true, fillColor: '#dff2e6', fontSize: 9 },
+      { text: 'Producto', bold: true, fillColor: '#dff2e6', fontSize: 9 },
+      { text: 'Categoría', bold: true, fillColor: '#dff2e6', fontSize: 9 },
+      { text: 'Marca', bold: true, fillColor: '#dff2e6', fontSize: 9 },
+      { text: 'Cant. Vendida', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'center' },
+      { text: 'Stock Actual', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'center' },
+      { text: 'Ganancia Neta', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' },
+      { text: 'Beneficio Bruto', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' }
+    ];
+    tableBody.push(headerRow);
+
+    let totalGananciaNeta = 0;
+    let totalBeneficioBruto = 0;
+    let totalCantidadVendida = 0;
+    let totalStockActual = 0;
+
+    // Datos
+    resultados.forEach((item, index) => {
+      const ganancia_neta = parseFloat(item.ganancia_neta) || 0;
+      const precio_compra = parseFloat(item.producto.precio_compra) || 0;
+      const precio_venta = parseFloat(item.producto.precio_venta) || 0;
+      const stock = parseInt(item.producto.stock) || 0;
+      const cantidad_vendida = parseInt(item.cantidad_vendida) || 0;
+      const beneficio_bruto = (precio_venta - precio_compra) * stock;
+
+      totalGananciaNeta += ganancia_neta;
+      totalBeneficioBruto += beneficio_bruto;
+      totalCantidadVendida += cantidad_vendida;
+      totalStockActual += stock;
+
+      const row = [
+        { text: String(index + 1), fontSize: 8 },
+        { text: safeText(item.producto.codigo), fontSize: 8 },
+        { text: safeText(item.producto.nombre), fontSize: 8 },
+        { text: safeText(item.producto.categorium?.nombre), fontSize: 8 },
+        { text: safeText(item.producto.marca?.nombre), fontSize: 8 },
+        { text: String(cantidad_vendida), fontSize: 8, alignment: 'center' },
+        { text: String(stock), fontSize: 8, alignment: 'center' },
+        { text: formatNumber(ganancia_neta), fontSize: 8, alignment: 'right', bold: true, color: ganancia_neta >= 0 ? '#00aa00' : '#aa0000' },
+        { text: formatNumber(beneficio_bruto), fontSize: 8, alignment: 'right', bold: true, color: '#0000aa' }
+      ];
+
+      tableBody.push(row);
+    });
+
+    // Fila de totales
+    tableBody.push([
+      { text: 'TOTALES', bold: true, colSpan: 5, fillColor: '#aed6f1', fontSize: 9 },
+      {}, {}, {}, {},
+      { text: String(totalCantidadVendida), bold: true, fillColor: '#aed6f1', fontSize: 9, alignment: 'center' },
+      { text: String(totalStockActual), bold: true, fillColor: '#aed6f1', fontSize: 9, alignment: 'center' },
+      { text: formatNumber(totalGananciaNeta), bold: true, fillColor: '#aed6f1', fontSize: 9, alignment: 'right' },
+      { text: formatNumber(totalBeneficioBruto), bold: true, fillColor: '#aed6f1', fontSize: 9, alignment: 'right' }
+    ]);
+
+    // Anchos de columna
+    const colWidths = [30, 50, '*', 70, 60, 50, 50, 70, 70];
+
+    // Estructura del PDF
+    const docDefinition = {
+      pageSize: 'A4',
+      pageOrientation: 'landscape',
+      pageMargins: [36, 110, 36, 54],
+      header: {
+        margin: [40, 40, 40, 20],
+        columns: [
+          { image: logo, width: 60 },
+          {
+            stack: [
+              { text: 'Reporte de Ganancias por Producto', fontSize: 16, bold: true },
+              { text: 'Productos activos con ventas', fontSize: 8 }
+            ],
+            margin: [10, 0, 0, 0],
+            width: '*'
+          },
+          {
+            stack: [
+              { text: `Generado por: ${usuario || 'desconocido'}`, alignment: 'right', fontSize: 8 },
+              { text: `Sistema: ${nombreSistema}`, alignment: 'right', fontSize: 8 },
+              { text: `Fecha: ${new Date().toLocaleString('es-BO')}`, alignment: 'right', fontSize: 8 }
+            ],
+            width: 150
+          }
+        ]
+      },
+      footer: (currentPage, pageCount) => ({
+        columns: [
+          { text: `Generado: ${new Date().toLocaleString('es-BO')} por: ${usuario || 'desconocido'}`, alignment: 'left', margin: [40, 0, 0, 0], fontSize: 8 },
+          { text: `${nombreSistema} - Página ${currentPage} de ${pageCount}`, alignment: 'right', margin: [0, 0, 40, 0], fontSize: 8 }
+        ]
+      }),
+      content: [
+        { text: '\n' },
+        {
+          table: {
+            headerRows: 1,
+            widths: colWidths,
+            body: tableBody
+          },
+          layout: {
+            hLineWidth: function (i, node) {
+              return (i === 0 || i === 1 || i === node.table.body.length) ? 1 : 0.5;
+            },
+            vLineWidth: function (i, node) {
+              return 0.5;
+            },
+            hLineColor: function (i, node) {
+              return '#cccccc';
+            },
+            vLineColor: function (i, node) {
+              return '#cccccc';
+            }
+          },
+          margin: [0, 20, 0, 0]
+        },
+        { text: '\n' },
+        {
+          columns: [
+            {
+              width: '*',
+              stack: [
+                { text: 'Leyenda:', bold: true, fontSize: 9, margin: [0, 0, 0, 5] },
+                { text: '• Ganancia Neta: Ganancia real considerando descuentos e impuestos de ventas realizadas', fontSize: 7 },
+                { text: '• Beneficio Bruto: Ganancia potencial del stock actual sin ventas', fontSize: 7 },
+                { text: '• Para productos facturados (tipo_venta=2) se descuenta 3% de impuesto', fontSize: 7 }
+              ]
+            }
+          ]
+        }
+      ],
+      styles: {
+        header: {
+          fontSize: 16,
+          bold: true
+        }
+      },
+      defaultStyle: {
+        fontSize: 9
+      }
+    };
+
+    const pdfDoc = printer.createPdfKitDocument(docDefinition);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename=reporte_ganancias_productos.pdf');
+    
+    pdfDoc.pipe(res);
+    pdfDoc.end();
+
+  } catch (error) {
+    console.error("Error en reporteGananciasProducto:", error);
+    res.status(500).send("Error al generar el reporte de ganancias: " + error.message);
+  }
+};
+
 module.exports = {
-  reporteInventario
+  reporteInventario,
+  reporteCatalogoProductos,
+  reporteGananciasProducto
 };

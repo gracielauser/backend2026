@@ -78,6 +78,7 @@ const generarNotaVenta = async (venta, res) => {
       { text: "Producto", bold: true },
       { text: "Cant.", bold: true, alignment: "right" },
       { text: "P.Unit", bold: true, alignment: "right" },
+      { text: "Descuento", bold: true, alignment: "right" },
       { text: "SubTotal", bold: true, alignment: "right" },
     ];
 
@@ -86,11 +87,13 @@ const generarNotaVenta = async (venta, res) => {
       const cantidad = Number(d.cantidad || d.cant || 0) || 0;
       const precioUnit = Number(d.precio_unitario || d.precio || 0) || 0;
       const subtotalItem = Number(d.sub_total || d.subtotal) || cantidad * precioUnit;
+      const descuentoItem = (precioUnit * cantidad) - subtotalItem;
       return [
         { text: String(i + 1) },
         productoNombre,
         { text: String(cantidad), alignment: "right" },
         { text: formatMoney(precioUnit), alignment: "right" },
+        { text: formatMoney(descuentoItem), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" }
       ];
     });
@@ -113,15 +116,15 @@ const generarNotaVenta = async (venta, res) => {
               stack: [
                 { text: "NOTA DE VENTA", style: "title", alignment: "center" },
                 { text: `Nro: ${safeText(venta.nro_venta || venta.nro || "")}`, alignment: "center" },
-                { text: `Fecha: ${safeText(new Date(venta.fecha_registro || venta.fecha || Date.now()).toLocaleDateString())}`, alignment: "center" }
+                { text: `Fecha: ${safeText(venta.fecha_registro || venta.fecha || Date.now())}`, alignment: "center" }
               ],
               width: "*"
             },
             {
               table: {
                 body: [
-                  [{ text: "Vendedor", bold: true }, safeText(venta.usuario?.empleado ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.apellido_paterno || ''}`.trim() : venta.usuario?.usuario || 'Sin usuario')],
-                  [{ text: "Cliente", bold: true }, safeText(venta.cliente ? `${venta.cliente.nombre || ''} ${venta.cliente.apellido_paterno || ''}`.trim() : 'Sin cliente')],
+                  [{ text: "Vendedor", bold: true }, safeText(venta.usuario?.empleado ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.ap_paterno || ''} ${venta.usuario.empleado.ap_materno || ''}`.trim() : venta.usuario?.usuario || 'Sin usuario')],
+                  [{ text: "Cliente", bold: true }, safeText(venta.cliente ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim() : 'Sin cliente')],
                   [{ text: "CI/NIT", bold: true }, safeText(venta.cliente?.ci_nit || venta.cliente?.CI_NIT)],
                   [{ text: "Tel", bold: true }, safeText(venta.cliente?.celular || venta.cliente?.CELULAR)]
                 ]
@@ -135,7 +138,7 @@ const generarNotaVenta = async (venta, res) => {
         {
           table: {
             headerRows: 1,
-            widths: ["auto", "*", "auto", "auto", "auto"],
+            widths: ["auto", "*", "auto", "auto", "auto", "auto"],
             body: [itemsHeader, ...itemsBody]
           },
           layout: "lightHorizontalLines"
@@ -149,7 +152,7 @@ const generarNotaVenta = async (venta, res) => {
                 body: [
                   [{ text: "Subtotal", alignment: "left" }, { text: formatMoney(subtotal), alignment: "right" }],
                   [{ text: "Descuento", alignment: "left" }, { text: formatMoney(descuento), alignment: "right" }],
-                  [{ text: "Total", bold: true, alignment: "left" }, { text: formatMoney(monto_total), bold: true, alignment: "right" }]
+                  [{ text: "Total", bold: true, alignment: "left" }, { text: formatMoney(monto_total-descuento), bold: true, alignment: "right" }]
                 ]
               },
               layout: "noBorders"
@@ -208,9 +211,9 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
 
     // Datos de la empresa emisora (placeholders - ajustar según necesidad)
     const empresaNIT = "1234567890"; // NIT de la empresa
-    const empresaNombre = "Auto Accesorios Pinedo SRL";
-    const empresaDireccion = "Av. Principal #123, Tarija - Bolivia";
-    const empresaTelefono = "+591 4-1234567";
+    const empresaNombre = "Auto Accesorios Pinedo";
+    const empresaDireccion = "Av. Circunvalación & Timoteo Raña, Tarija - Bolivia";
+    const empresaTelefono = "+591 71895925";
     
     // Calcular totales primero (necesarios para código de control)
     const subtotal = detalles.reduce((acc, d) => {
@@ -227,12 +230,12 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
     // Datos de factura (con placeholders si no existen en BD)
     const nroFactura = factura?.nro_factura || venta.nro_venta || "0";
     const codigoAutorizacion = "79040011007"; // Placeholder - debe venir de sistema de impuestos
-    const fechaLimiteEmision = "31/12/2026"; // Placeholder
+    // const fechaLimiteEmision = "31/12/2026"; // Placeholder
     const codigoControl = generarCodigoControl(nroFactura, empresaNIT, new Date(venta.fecha_registro || Date.now()), monto_total); // Generar código de control
     
     // Cliente
     const clienteNombre = venta.cliente 
-      ? `${venta.cliente.nombre || ''} ${venta.cliente.apellido_paterno || ''} ${venta.cliente.apellido_materno || ''}`.trim()
+      ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim()
       : 'S/N';
     const clienteNIT = venta.cliente?.ci_nit || '0';
 
@@ -250,11 +253,12 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
       const cantidad = Number(d.cantidad || d.cant || 0) || 0;
       const precioUnit = Number(d.precio_unitario || d.precio|| 0) || 0;
       const subtotalItem = Number(d.sub_total || d.subtotal) || cantidad * precioUnit;
+      const descuentoItem = (precioUnit * cantidad) - subtotalItem;
       return [
         { text: String(cantidad), alignment: "center" },
         productoNombre,
         { text: formatMoney(precioUnit), alignment: "right" },
-        { text: "0.00", alignment: "right" },
+        { text: formatMoney(descuentoItem), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" }
       ];
     });
@@ -301,7 +305,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
               stack: [
                 { text: `Nº de Autorización: ${codigoAutorizacion}`, fontSize: 8 },
                 { text: `Código de Control: ${codigoControl}`, fontSize: 8, margin: [0, 2, 0, 0] },
-                { text: `Fecha Límite de Emisión: ${fechaLimiteEmision}`, fontSize: 8, margin: [0, 2, 0, 0] }
+                // { text: `Fecha Límite de Emisión: ${fechaLimiteEmision}`, fontSize: 8, margin: [0, 2, 0, 0] }
               ],
               width: '*'
             }
@@ -316,7 +320,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
             body: [
               [
                 { text: 'Fecha:', bold: true, border: [true, true, false, true] },
-                { text: new Date(venta.fecha_registro || Date.now()).toLocaleDateString('es-BO'), border: [false, true, true, true] },
+                { text: safeText(venta.fecha_registro || Date.now()), border: [false, true, true, true] },
                 { text: 'NIT/CI:', bold: true, border: [true, true, false, true] },
                 { text: clienteNIT, border: [false, true, true, true] }
               ],
@@ -1217,6 +1221,7 @@ const reporteVentasDetallado = async (req, res) => {
           { text: 'Código', bold: true, fontSize: 8, fillColor: '#e3f2fd' },
           { text: 'Cant.', bold: true, fontSize: 8, alignment: 'center', fillColor: '#e3f2fd' },
           { text: 'P. Unit.', bold: true, fontSize: 8, alignment: 'right', fillColor: '#e3f2fd' },
+          { text: 'Desc.', bold: true, fontSize: 8, alignment: 'right', fillColor: '#e3f2fd' },
           { text: 'Subtotal', bold: true, fontSize: 8, alignment: 'right', fillColor: '#e3f2fd' }
         ]
       ];
@@ -1233,6 +1238,7 @@ const reporteVentasDetallado = async (req, res) => {
           { text: productoCodigo, fontSize: 8 },
           { text: cantidad.toString(), fontSize: 8, alignment: 'center' },
           { text: formatNumber(precioUnit), fontSize: 8, alignment: 'right' },
+          { text: formatNumber(precioUnit*cantidad-subtotal), fontSize: 8, alignment: 'right' },
           { text: formatNumber(subtotal), fontSize: 8, alignment: 'right' }
         ]);
       });
@@ -1246,6 +1252,7 @@ const reporteVentasDetallado = async (req, res) => {
         { text: '', colSpan: 3, border: [false, false, false, false] },
         {},
         {},
+        {},
         { text: 'Monto:', bold: true, fontSize: 8, alignment: 'right' },
         { text: formatNumber(monto), fontSize: 8, alignment: 'right' }
       ]);
@@ -1253,6 +1260,7 @@ const reporteVentasDetallado = async (req, res) => {
       if (descuento > 0) {
         productosBody.push([
           { text: '', colSpan: 3, border: [false, false, false, false] },
+          {},
           {},
           {},
           { text: 'Descuento:', bold: true, fontSize: 8, alignment: 'right' },
@@ -1264,6 +1272,7 @@ const reporteVentasDetallado = async (req, res) => {
         { text: '', colSpan: 3, border: [false, false, false, false] },
         {},
         {},
+        {},
         { text: 'TOTAL:', bold: true, fontSize: 9, alignment: 'right', fillColor: '#e8f5e9' },
         { text: formatNumber(total), bold: true, fontSize: 9, alignment: 'right', fillColor: '#e8f5e9' }
       ]);
@@ -1271,7 +1280,7 @@ const reporteVentasDetallado = async (req, res) => {
       content.push({
         table: {
           headerRows: 1,
-          widths: ['*', 80, 40, 70, 70],
+          widths: ['*', 80, 40, 40, 50, 50],
           body: productosBody
         },
         layout: {
