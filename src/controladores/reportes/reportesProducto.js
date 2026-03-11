@@ -505,8 +505,8 @@ const reporteGananciasProducto = async (req, res) => {
         },
         {
           model: db.producto,
-          attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock'],
-          where: { estado: 1 },
+          attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock','estado'],
+        //   where: { estado: 1 }, ya no por que vas ventas no importa si no esta activo el prodcuto el veneficio ya me dio
           required: true,
           include: [
             {
@@ -522,7 +522,7 @@ const reporteGananciasProducto = async (req, res) => {
           ]
         }
       ],
-      group: ['det_venta.id_producto', 'producto.id_producto', 'producto.codigo', 'producto.nombre', 
+      group: ['det_venta.id_producto', 'producto.id_producto', 'producto.codigo', 'producto.nombre','producto.estado', 
               'producto.precio_compra', 'producto.precio_venta', 'producto.stock', 
               'producto->categorium.id_categoria', 'producto->categorium.nombre',
               'producto->marca.id_marca', 'producto->marca.nombre'],
@@ -568,7 +568,7 @@ const reporteGananciasProducto = async (req, res) => {
       { text: 'Cant. Vendida', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'center' },
       { text: 'Stock Actual', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'center' },
       { text: 'Ganancia Neta por Ventas', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' },
-      { text: 'Beneficio Bruto', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' }
+      { text: 'Beneficio Bruto Potencial', bold: true, fillColor: '#dff2e6', fontSize: 9, alignment: 'right' }
     ];
     tableBody.push(headerRow);
 
@@ -584,7 +584,7 @@ const reporteGananciasProducto = async (req, res) => {
       const precio_venta = parseFloat(item.producto.precio_venta) || 0;
       const stock = parseInt(item.producto.stock) || 0;
       const cantidad_vendida = parseInt(item.cantidad_vendida) || 0;
-      const beneficio_bruto = (precio_venta - precio_compra) * stock;
+      const beneficio_bruto = item.producto.estado==1? (precio_venta - precio_compra) * stock: 0;
 
       totalGananciaNeta += ganancia_neta;
       totalBeneficioBruto += beneficio_bruto;
