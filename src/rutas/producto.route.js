@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer')
-const {agregar,listar, modificar} = require('../controladores/producto.controller')
+const {agregar,listar, modificar, movimientos} = require('../controladores/producto.controller')
 //   /listar
 // Configuración de almacenamiento
 const storage = multer.diskStorage({
@@ -21,5 +21,5 @@ router.post('/agregar',upload.fields([
 router.put('/modificar', upload.fields([
     { name: 'foto', maxCount: 1 }
   ]),modificar)
-
+router.get('/movimientos',movimientos)
 module.exports = router

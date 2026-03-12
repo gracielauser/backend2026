@@ -23,6 +23,7 @@ const login = async (req, res) => {
                 }
             ]
         });
+console.log('devolviendo: ',usuarioEncontrado);
 
         if (usuarioEncontrado) {
             data.token='XD'

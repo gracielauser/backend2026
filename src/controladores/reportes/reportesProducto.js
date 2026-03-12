@@ -531,7 +531,6 @@ const reporteGananciasProducto = async (req, res) => {
       nest: true
     });
 
-    console.log('Resultados obtenidos:', resultados.length);
     if (resultados.length > 0) {
       console.log('Primer resultado:', JSON.stringify(resultados[0]));
     }
