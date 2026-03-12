@@ -8,7 +8,7 @@ module.exports = function(sequelize, DataTypes) {
       primaryKey: true
     },
     fecha_registro: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.STRING(30),
       allowNull: false
     },
     tipo_movimiento: {
@@ -17,11 +17,11 @@ module.exports = function(sequelize, DataTypes) {
     },
     motivo: {
       type: DataTypes.STRING(100),
-      allowNull: false
+      allowNull: true
     },
     id_producto: {
       type: DataTypes.INTEGER,
-      allowNull: true,
+      allowNull: false,
       references: {
         model: 'producto',
         key: 'id_producto'

@@ -28,11 +28,12 @@ const agregar= async (req,res)=>{
         const nCompra = await db.compra.create(newCompra)
         for(det of newCompra.detalle){
             det.id_compra = nCompra.id_compra
-            if(det.producto.id_producto[0] === 'N'){
+            if(det.producto.id_producto[0] === 'N'){//primer caracter del id_producto es N, es nuevo
                 const nuevoProducto = await db.producto.create(det.producto)
                 det.id_producto = nuevoProducto.id_producto
             }else{
                 det.id_producto = det.producto.id_producto
+                await db.producto.update({stock: det.producto.stock+det.cantidad},{where: {id_producto: det.id_producto}})
             }
         }
         await db.det_compra.bulkCreate(newCompra.detalle)
