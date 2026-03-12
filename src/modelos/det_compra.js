@@ -35,14 +35,6 @@ module.exports = function(sequelize, DataTypes) {
         key: 'id_producto'
       }
     },
-    defectuosos: {
-      type: DataTypes.INTEGER,
-      allowNull: true
-    },
-    cantidad_recibida: {
-      type: DataTypes.INTEGER,
-      allowNull: true
-    }
   }, {
     sequelize,
     tableName: 'det_compra',

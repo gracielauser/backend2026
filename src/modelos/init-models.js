@@ -66,6 +66,8 @@ function initModels(sequelize) {
   usuario.hasMany(compra, { foreignKey: "id_usuario"});
   gasto.belongsTo(usuario, { foreignKey: "id_usuario"});
   usuario.hasMany(gasto, { foreignKey: "id_usuario"});
+  inventario.belongsTo(usuario, { foreignKey: "id_usuario"});
+  usuario.hasMany(inventario, { foreignKey: "id_usuario"});
   usu_rol.belongsTo(usuario, { foreignKey: "id_usuario"});
   usuario.hasMany(usu_rol, { foreignKey: "id_usuario"});
   venta.belongsTo(usuario, { foreignKey: "id_usuario"});

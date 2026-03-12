@@ -41,10 +41,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true,
       unique: "compra_nro_compra_key"
     },
-    fecha_recepcion: {
-      type: DataTypes.STRING(50),
-      allowNull: true
-    }
+
   }, {
     sequelize,
     tableName: 'compra',
