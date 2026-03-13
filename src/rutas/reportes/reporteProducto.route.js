@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { reporteInventario, reporteCatalogoProductos, reporteGananciasProducto } = require('../../controladores/reportes/reportesProducto');
+const { reporteInventario, reporteCatalogoProductos, reporteGananciasProducto, obtenerDatosInventario } = require('../../controladores/reportes/reportesProducto');
 
-// Ruta para generar reporte de inventario de productos
+// Ruta para obtener datos de inventario (vista previa JSON)
+router.get('/inventario/datos', obtenerDatosInventario);
+
+// Ruta para generar reporte de inventario de productos (PDF)
 router.post('/inventario', reporteInventario);
 
 // Ruta para generar catálogo de productos

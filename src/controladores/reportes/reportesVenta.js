@@ -93,7 +93,7 @@ const generarNotaVenta = async (venta, res) => {
         productoNombre,
         { text: String(cantidad), alignment: "right" },
         { text: formatMoney(precioUnit), alignment: "right" },
-        { text: formatMoney(descuentoItem), alignment: "right" },
+        { text: formatMoney(descuentoItem>0?descuentoItem:0), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" }
       ];
     });
@@ -258,7 +258,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
         { text: String(cantidad), alignment: "center" },
         productoNombre,
         { text: formatMoney(precioUnit), alignment: "right" },
-        { text: formatMoney(descuentoItem), alignment: "right" },
+        { text: formatMoney(descuentoItem>0?descuentoItem:0), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" }
       ];
     });
@@ -1238,7 +1238,7 @@ const reporteVentasDetallado = async (req, res) => {
           { text: productoCodigo, fontSize: 8 },
           { text: cantidad.toString(), fontSize: 8, alignment: 'center' },
           { text: formatNumber(precioUnit), fontSize: 8, alignment: 'right' },
-          { text: formatNumber(precioUnit*cantidad-subtotal), fontSize: 8, alignment: 'right' },
+          { text: formatNumber((precioUnit*cantidad-subtotal)>0 ? (precioUnit*cantidad-subtotal) : 0), fontSize: 8, alignment: 'right' },
           { text: formatNumber(subtotal), fontSize: 8, alignment: 'right' }
         ]);
       });

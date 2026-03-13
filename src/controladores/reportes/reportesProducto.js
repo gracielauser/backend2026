@@ -42,6 +42,18 @@ const reporteInventario = async (req, res) => {
     const formatMoney = (n) =>
       typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
 
+    // Calcular totales
+    const totalProductos = productos.length;
+    const productosActivos = productos.filter(p => p.estado === 1).length;
+    const productosInactivos = productos.filter(p => p.estado !== 1).length;
+    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
+    const gananciaPotencial = valorInventarioVenta - valorInventarioCompra;
+    const margenGananciaTotal = valorInventarioCompra > 0 
+      ? ((gananciaPotencial / valorInventarioCompra) * 100).toFixed(2)
+      : '0.00';
+
     // Preparar tabla de productos
     const tableBody = [
       [
@@ -53,31 +65,33 @@ const reporteInventario = async (req, res) => {
         { text: "Stock", bold: true, fontSize: 9 },
         { text: "Stock Mín", bold: true, fontSize: 9 },
         { text: "P. Compra", bold: true, fontSize: 9 },
+        { text: "Margen", bold: true, fontSize: 9 },
         { text: "P. Venta", bold: true, fontSize: 9 },
         { text: "Estado", bold: true, fontSize: 9 }
       ]
     ];
 
     productos.forEach((producto) => {
+      const precioCompra = parseFloat(producto.precio_compra) || 0;
+      const precioVenta = parseFloat(producto.precio_venta) || 0;
+      const margenProducto = precioCompra > 0 
+        ? (((precioVenta - precioCompra) / precioCompra) * 100).toFixed(2)
+        : '0.00';
+
       tableBody.push([
         { text: safeText(producto.codigo), fontSize: 8 },
         { text: safeText(producto.nombre), fontSize: 8 },
         { text: producto.categorium ? safeText(producto.categorium.nombre) : "N/A", fontSize: 8 },
         { text: producto.marca ? safeText(producto.marca.nombre) : "N/A", fontSize: 8 },
-        { text: producto.unidad_medidum ? safeText(producto.unidad_medidum.abreviatura || producto.unidad_medidum.nombre) : "N/A", fontSize: 8 },
+        { text: producto.unidad_medida ? safeText(producto.unidad_medida.abreviatura || producto.unidad_medida.nombre) : "N/A", fontSize: 8 },
         { text: producto.stock || 0, fontSize: 8, alignment: 'center' },
         { text: producto.stock_minimo || 0, fontSize: 8, alignment: 'center' },
         { text: `Bs ${formatMoney(producto.precio_compra)}`, fontSize: 8, alignment: 'right' },
+        { text: `${margenProducto}%`, fontSize: 8, alignment: 'center', bold: true, color: parseFloat(margenProducto) > 0 ? 'green' : 'red' },
         { text: `Bs ${formatMoney(producto.precio_venta)}`, fontSize: 8, alignment: 'right' },
         { text: producto.estado === 1 ? "Activo" : "Inactivo", fontSize: 8, alignment: 'center' }
       ]);
     });
-
-    // Calcular totales
-    const totalProductos = productos.length;
-    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
-    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
-    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
 
     // Estructura del PDF
     const docDefinition = {
@@ -115,9 +129,67 @@ const reporteInventario = async (req, res) => {
       },
       content: [
         {
+          style: 'totales',
           table: {
             headerRows: 1,
-            widths: [40, '*', 60, 60, 40, 35, 35, 45, 45, 40],
+            widths: ['*', '*', '*', '*'],
+            body: [
+              [
+                { text: 'Indicador', bold: true, fillColor: '#4CAF50', fontSize: 10, color: 'white', alignment: 'center' },
+                { text: 'Valor', bold: true, fillColor: '#4CAF50', fontSize: 10, color: 'white', alignment: 'center' },
+                { text: 'Indicador', bold: true, fillColor: '#4CAF50', fontSize: 10, color: 'white', alignment: 'center' },
+                { text: 'Valor', bold: true, fillColor: '#4CAF50', fontSize: 10, color: 'white', alignment: 'center' }
+              ],
+              [
+                { text: 'Total de Productos:', bold: true, fontSize: 9 },
+                { text: totalProductos.toString(), alignment: 'right', fontSize: 9 },
+                { text: 'Productos Activos:', bold: true, fontSize: 9 },
+                { text: productosActivos.toString(), alignment: 'right', fontSize: 9, color: 'green' }
+              ],
+              [
+                { text: 'Total Unidades en Stock:', bold: true, fontSize: 9 },
+                { text: totalStock.toString(), alignment: 'right', fontSize: 9 },
+                { text: 'Productos Inactivos:', bold: true, fontSize: 9 },
+                { text: productosInactivos.toString(), alignment: 'right', fontSize: 9, color: 'red' }
+              ],
+              [
+                { text: 'Valor Inventario (Compra):', bold: true, fontSize: 9 },
+                { text: `Bs ${formatMoney(valorInventarioCompra)}`, alignment: 'right', fontSize: 9, color: 'blue' },
+                { text: 'Valor Inventario (Venta):', bold: true, fontSize: 9 },
+                { text: `Bs ${formatMoney(valorInventarioVenta)}`, alignment: 'right', fontSize: 9, color: 'green' }
+              ],
+              [
+                { text: 'Ganancia Potencial:', bold: true, fontSize: 9 },
+                { text: `Bs ${formatMoney(gananciaPotencial)}`, alignment: 'right', fontSize: 9, color: 'orange', bold: true },
+                { text: 'Margen de Ganancia Total:', bold: true, fontSize: 9 },
+                { text: `${margenGananciaTotal}%`, alignment: 'right', fontSize: 9, color: 'purple', bold: true }
+              ]
+            ]
+          },
+          layout: {
+            fillColor: function (rowIndex, node, columnIndex) {
+              if (rowIndex === 0) return '#4CAF50';
+              return (rowIndex % 2 === 0) ? '#f9f9f9' : null;
+            },
+            hLineWidth: function (i, node) {
+              return 0.5;
+            },
+            vLineWidth: function (i, node) {
+              return 0.5;
+            },
+            hLineColor: function (i, node) {
+              return '#cccccc';
+            },
+            vLineColor: function (i, node) {
+              return '#cccccc';
+            }
+          }
+        },
+        { text: '\n' },
+        {
+          table: {
+            headerRows: 1,
+            widths: [40, '*', 55, 55, 35, 30, 30, 42, 35, 42, 35],
             body: tableBody
           },
           layout: {
@@ -137,36 +209,6 @@ const reporteInventario = async (req, res) => {
               return '#cccccc';
             }
           }
-        },
-        { text: '\n' },
-        {
-          style: 'totales',
-          table: {
-            widths: ['*', 100],
-            body: [
-              [
-                { text: 'Total de Productos:', bold: true },
-                { text: totalProductos.toString(), alignment: 'right' }
-              ],
-              [
-                { text: 'Total Unidades en Stock:', bold: true },
-                { text: totalStock.toString(), alignment: 'right' }
-              ],
-              [
-                { text: 'Valor Total Inventario (Precio Compra):', bold: true },
-                { text: `Bs ${formatMoney(valorInventarioCompra)}`, alignment: 'right', color: 'blue' }
-              ],
-              [
-                { text: 'Valor Total Inventario (Precio Venta):', bold: true },
-                { text: `Bs ${formatMoney(valorInventarioVenta)}`, alignment: 'right', color: 'green' }
-              ],
-              [
-                { text: 'Ganancia Potencial:', bold: true },
-                { text: `Bs ${formatMoney(valorInventarioVenta - valorInventarioCompra)}`, alignment: 'right', color: 'orange' }
-              ]
-            ]
-          },
-          layout: 'noBorders'
         }
       ],
       styles: {
@@ -714,8 +756,107 @@ const reporteGananciasProducto = async (req, res) => {
   }
 };
 
+// Obtener datos de inventario para vista previa (sin generar PDF)
+const obtenerDatosInventario = async (req, res) => {
+  try {
+    // Obtener todos los productos con sus relaciones
+    const productosRaw = await db.producto.findAll({
+      include: [
+        { model: db.categoria, attributes: ['id_categoria', 'nombre'] },
+        { model: db.marca, attributes: ['id_marca', 'nombre'] },
+        { model: db.unidad_medida, attributes: ['id_unidad_medida', 'nombre', 'abreviatura'] },
+        { model: db.inventario, attributes: ['id_inventario', 'fecha_registro', 'tipo_movimiento', 'motivo', 'cantidad'] }
+      ],
+      order: [['nombre', 'ASC']]
+    });
+
+    if (!productosRaw || productosRaw.length === 0) {
+      return res.status(404).json({ mensaje: "No se encontraron productos" });
+    }
+
+    // Convertir a objetos planos
+    const productos = productosRaw.map(p => p.get ? p.get({ plain: true }) : p);
+
+    // Calcular totales
+    const totalProductos = productos.length;
+    const productosActivos = productos.filter(p => p.estado === 1).length;
+    const productosInactivos = productos.filter(p => p.estado !== 1).length;
+    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
+    const gananciaPotencial = valorInventarioVenta - valorInventarioCompra;
+    const margenGananciaTotal = valorInventarioCompra > 0 
+      ? ((gananciaPotencial / valorInventarioCompra) * 100).toFixed(2)
+      : '0.00';
+
+    // Preparar productos con margen calculado
+    const productosConMargen = productos.map((producto) => {
+      const precioCompra = parseFloat(producto.precio_compra) || 0;
+      const precioVenta = parseFloat(producto.precio_venta) || 0;
+      const margenProducto = precioCompra > 0 
+        ? (((precioVenta - precioCompra) / precioCompra) * 100).toFixed(2)
+        : '0.00';
+
+      return {
+        id_producto: producto.id_producto,
+        codigo: producto.codigo || '',
+        nombre: producto.nombre || '',
+        descripcion: producto.descripcion || '',
+        categoria: producto.categorium ? {
+          id_categoria: producto.categorium.id_categoria,
+          nombre: producto.categorium.nombre
+        } : null,
+        marca: producto.marca ? {
+          id_marca: producto.marca.id_marca,
+          nombre: producto.marca.nombre
+        } : null,
+        unidad_medida: producto.unidad_medida ? {
+          id_unidad_medida: producto.unidad_medida.id_unidad_medida,
+          nombre: producto.unidad_medida.nombre,
+          abreviatura: producto.unidad_medida.abreviatura
+        } : null,
+        stock: producto.stock || 0,
+        stock_minimo: producto.stock_minimo || 0,
+        precio_compra: precioCompra,
+        precio_venta: precioVenta,
+        margen_porcentaje: parseFloat(margenProducto),
+        estado: producto.estado === 1 ? 'Activo' : 'Inactivo',
+        estado_valor: producto.estado,
+        foto: producto.foto || null,
+        movimientos_inventario: producto.inventarios || []
+      };
+    });
+
+    // Construir respuesta
+    const respuesta = {
+      fecha_generacion: new Date().toLocaleString('es-ES'),
+      totales: {
+        total_productos: totalProductos,
+        productos_activos: productosActivos,
+        productos_inactivos: productosInactivos,
+        total_unidades_stock: totalStock,
+        valor_inventario_compra: parseFloat(valorInventarioCompra.toFixed(2)),
+        valor_inventario_venta: parseFloat(valorInventarioVenta.toFixed(2)),
+        ganancia_potencial: parseFloat(gananciaPotencial.toFixed(2)),
+        margen_ganancia_total_porcentaje: parseFloat(margenGananciaTotal)
+      },
+      productos: productosConMargen
+    };
+
+    return res.status(200).json(respuesta);
+
+  } catch (error) {
+    console.error("Error en obtenerDatosInventario:", error);
+    return res.status(500).json({ 
+      mensaje: "Error al obtener los datos del inventario", 
+      error: error.message 
+    });
+  }
+};
+
 module.exports = {
   reporteInventario,
   reporteCatalogoProductos,
-  reporteGananciasProducto
+  reporteGananciasProducto,
+  obtenerDatosInventario
 };

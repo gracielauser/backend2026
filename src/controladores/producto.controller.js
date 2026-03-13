@@ -157,7 +157,7 @@ const kardex = async (req, res) => {
 
     // 0. Obtener información del producto (para el stock actual)
     const producto = await db.producto.findByPk(id_producto, {
-      attributes: ['id_producto', 'stock']
+      attributes: ['id_producto', 'stock','fecha_registro']
     });
 
     if (!producto) {
@@ -353,10 +353,11 @@ const kardex = async (req, res) => {
       const fechaB = new Date(b.fecha || 0);
       return fechaB - fechaA;
     });
-
     // Insertar el movimiento de apertura al inicio
-    movimientos.unshift(movimientoApertura);
+    movimientos.push(movimientoApertura);
 
+    movimientos.reverse(); // Para mostrar desde el más antiguo al más reciente
+    
     return res.status(200).json({
       id_producto: parseInt(id_producto),
       total_movimientos: movimientos.length,
