@@ -1164,25 +1164,36 @@ const reporteVentasDetallado = async (req, res) => {
     const content = [];
     
     let counter = 1;
-    ventas.forEach((venta) => {
+    ventas.forEach((venta, index) => {
       const detalles = venta.det_ventas || venta.det_venta || [];
       const nombreUsuario = venta.usuario?.empleado 
-        ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.apellido_paterno || ''}`.trim()
+        ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.ap_paterno || ''} ${venta.usuario.empleado.ap_materno || ''}`.trim()
         : (venta.usuario?.usuario || 'Sin usuario');
       const nombreCliente = venta.cliente 
-        ? `${venta.cliente.nombre || ''} ${venta.cliente.apellido_paterno || ''}`.trim()
+        ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim()
         : 'Sin cliente';
       const fecha = formatFecha(venta.fecha_registro);
       const tipoText = venta.tipo_venta === 2 ? 'Facturado' : 'Normal';
       const tipoPagoText = venta.tipo_pago === 2 ? 'QR' : 'Efectivo';
-      const estadoText = venta.estado === 1 ? 'Válido' : venta.estado === 2 ? 'Anulado' : String(venta.estado);
-      const estadoColor = venta.estado === 1 ? '#00aa00' : '#aa0000';
+      const estadoText = venta.estado === 1 ? 'VÁLIDA' : venta.estado === 2 ? 'ANULADA' : String(venta.estado);
+      const estadoColor = venta.estado === 1 ? '#2196F3' : '#f44336';
+      const esAnulada = venta.estado === 2;
+      
+      // Separador entre ventas
+      if (index > 0) {
+        content.push({ 
+          canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#cccccc' }], 
+          margin: [0, 15, 0, 15] 
+        });
+      }
       
       // Título de la venta
       content.push({
-        text: `Venta #${counter} - Nro: ${venta.nro_venta || venta.id_venta} - ${fecha}`,
-        style: 'ventaTitle',
-        margin: [0, counter > 1 ? 20 : 0, 0, 5]
+        text: `Venta #${venta.nro_venta || venta.id_venta} - ${estadoText}`,
+        fontSize: 12,
+        bold: true,
+        color: estadoColor,
+        margin: [0, 10, 0, 5]
       });
       
       // Información de la venta
@@ -1191,38 +1202,41 @@ const reporteVentasDetallado = async (req, res) => {
           {
             width: '*',
             stack: [
-              { text: `Cliente: ${nombreCliente}`, fontSize: 9 },
-              { text: `Usuario: ${nombreUsuario}`, fontSize: 9 },
-              { text: `Tipo: ${tipoText}`, fontSize: 9 }
+              { text: `Cliente: ${nombreCliente}`, fontSize: 9, bold: true },
+              { text: `CI/NIT: ${venta.cliente?.ci_nit || 'N/A'}`, fontSize: 9 },
+              { text: `Usuario: ${nombreUsuario}`, fontSize: 9 }
             ]
           },
           {
             width: '*',
             stack: [
               { text: `Fecha: ${fecha}`, fontSize: 9, alignment: 'right' },
-              { text: `Estado: ${estadoText}`, fontSize: 9, alignment: 'right', color: estadoColor },
-              { text: `CI/NIT: ${venta.cliente?.ci_nit || 'N/A'}`, fontSize: 9, alignment: 'right' }
-            ]
-          },
-          {
-            width: 120,
-            stack: [
-              { text: `Tipo Pago: ${tipoPagoText}`, fontSize: 9, alignment: 'right', bold: true, color: venta.tipo_pago === 2 ? '#1976d2' : '#388e3c' }
+              { text: `Tipo: ${tipoText}`, fontSize: 9, alignment: 'right' },
+              { text: `Pago: ${tipoPagoText}`, fontSize: 9, alignment: 'right', bold: true, color: venta.tipo_pago === 2 ? '#1976d2' : '#388e3c' }
             ]
           }
         ],
         margin: [0, 0, 0, 10]
       });
       
+      // Subtítulo de productos
+      content.push({ 
+        text: 'Productos de la venta:', 
+        fontSize: 10, 
+        bold: true, 
+        margin: [0, 5, 0, 5],
+        color: '#555555' 
+      });
+      
       // Tabla de productos
       const productosBody = [
         [
-          { text: 'Producto', bold: true, fontSize: 8, fillColor: '#e3f2fd' },
-          { text: 'Código', bold: true, fontSize: 8, fillColor: '#e3f2fd' },
-          { text: 'Cant.', bold: true, fontSize: 8, alignment: 'center', fillColor: '#e3f2fd' },
-          { text: 'P. Unit.', bold: true, fontSize: 8, alignment: 'right', fillColor: '#e3f2fd' },
-          { text: 'Desc.', bold: true, fontSize: 8, alignment: 'right', fillColor: '#e3f2fd' },
-          { text: 'Subtotal', bold: true, fontSize: 8, alignment: 'right', fillColor: '#e3f2fd' }
+          { text: 'Producto', bold: true, fontSize: 9, fillColor: '#2196F3', color: 'white' },
+          { text: 'Código', bold: true, fontSize: 9, fillColor: '#2196F3', color: 'white' },
+          { text: 'Cant.', bold: true, fontSize: 9, alignment: 'center', fillColor: '#2196F3', color: 'white' },
+          { text: 'P. Unit.', bold: true, fontSize: 9, alignment: 'right', fillColor: '#2196F3', color: 'white' },
+          { text: 'Desc.', bold: true, fontSize: 9, alignment: 'right', fillColor: '#2196F3', color: 'white' },
+          { text: 'Subtotal', bold: true, fontSize: 9, alignment: 'right', fillColor: '#2196F3', color: 'white' }
         ]
       ];
       
@@ -1232,14 +1246,15 @@ const reporteVentasDetallado = async (req, res) => {
         const cantidad = parseFloat(det.cantidad) || 0;
         const precioUnit = parseFloat(det.precio_unitario) || 0;
         const subtotal = parseFloat(det.sub_total) || (cantidad * precioUnit);
+        const colorDetalle = esAnulada ? '#999999' : '#333333';
         
         productosBody.push([
-          { text: productoNombre, fontSize: 8 },
-          { text: productoCodigo, fontSize: 8 },
-          { text: cantidad.toString(), fontSize: 8, alignment: 'center' },
-          { text: formatNumber(precioUnit), fontSize: 8, alignment: 'right' },
-          { text: formatNumber((precioUnit*cantidad-subtotal)>0 ? (precioUnit*cantidad-subtotal) : 0), fontSize: 8, alignment: 'right' },
-          { text: formatNumber(subtotal), fontSize: 8, alignment: 'right' }
+          { text: productoNombre, fontSize: 9, color: colorDetalle },
+          { text: productoCodigo, fontSize: 9, color: colorDetalle },
+          { text: cantidad.toString(), fontSize: 9, alignment: 'center', color: colorDetalle },
+          { text: formatNumber(precioUnit), fontSize: 9, alignment: 'right', color: colorDetalle },
+          { text: formatNumber((precioUnit*cantidad-subtotal)>0 ? (precioUnit*cantidad-subtotal) : 0), fontSize: 9, alignment: 'right', color: colorDetalle },
+          { text: formatNumber(subtotal), fontSize: 9, alignment: 'right', color: colorDetalle, bold: true }
         ]);
       });
       
@@ -1253,42 +1268,26 @@ const reporteVentasDetallado = async (req, res) => {
         {},
         {},
         {},
-        { text: 'Monto:', bold: true, fontSize: 8, alignment: 'right' },
-        { text: formatNumber(monto), fontSize: 8, alignment: 'right' }
-      ]);
-      
-      if (descuento > 0) {
-        productosBody.push([
-          { text: '', colSpan: 3, border: [false, false, false, false] },
-          {},
-          {},
-          {},
-          { text: 'Descuento:', bold: true, fontSize: 8, alignment: 'right' },
-          { text: formatNumber(descuento), fontSize: 8, alignment: 'right', color: 'red' }
-        ]);
-      }
-      
-      productosBody.push([
-        { text: '', colSpan: 3, border: [false, false, false, false] },
-        {},
-        {},
-        {},
-        { text: 'TOTAL:', bold: true, fontSize: 9, alignment: 'right', fillColor: '#e8f5e9' },
-        { text: formatNumber(total), bold: true, fontSize: 9, alignment: 'right', fillColor: '#e8f5e9' }
+        { text: 'TOTAL:', bold: true, fontSize: 10, alignment: 'right', fillColor: esAnulada ? '#ffebee' : '#e3f2fd', color: esAnulada ? '#999999' : '#1565C0', border: [true, true, false, true] },
+        { text: `${formatNumber(total)}${esAnulada ? ' (ANULADA)' : ''}`, bold: true, fontSize: 10, alignment: 'right', fillColor: esAnulada ? '#ffebee' : '#e3f2fd', color: esAnulada ? '#999999' : '#1565C0', decoration: esAnulada ? 'lineThrough' : undefined, border: [false, true, true, true] }
       ]);
       
       content.push({
         table: {
           headerRows: 1,
-          widths: ['*', 80, 40, 40, 50, 50],
+          widths: ['*', 70, 40, 50, 50, 60],
           body: productosBody
         },
         layout: {
+          fillColor: function (rowIndex, node, columnIndex) {
+            return (rowIndex === 0) ? '#2196F3' : (rowIndex % 2 === 1 && rowIndex !== productosBody.length - 1 ? '#f9f9f9' : null);
+          },
           hLineWidth: function (i, node) { return 0.5; },
           vLineWidth: function (i, node) { return 0.5; },
           hLineColor: function (i, node) { return '#CCCCCC'; },
           vLineColor: function (i, node) { return '#CCCCCC'; }
-        }
+        },
+        margin: [0, 0, 0, 10]
       });
       
       counter++;
@@ -1392,4 +1391,426 @@ const reporteVentasDetallado = async (req, res) => {
   }
 };
 
-module.exports = { ventaNota, reporteVentasResumido, reporteVentasDetallado };
+// Obtener datos de ventas resumido para vista previa (sin generar PDF)
+const obtenerDatosVentasResumido = async (req, res) => {
+  try {
+    const {
+      desde,
+      hasta,
+      id_usuario,
+      estado,
+      id_cliente,
+      tipo_venta,
+      orden = null
+    } = req.query;
+    
+    const whereClause = {};
+    
+    // Filtro por cliente
+    if (id_cliente && String(id_cliente).trim() !== '') {
+      whereClause.id_cliente = parseInt(id_cliente);
+    }
+    
+    // Filtro por estado
+    if (estado !== undefined && String(estado).trim() !== '') {
+      whereClause.estado = parseInt(estado);
+    }
+    
+    // Filtro por usuario
+    if (id_usuario && String(id_usuario).trim() !== '') {
+      whereClause.id_usuario = parseInt(id_usuario);
+    }
+    
+    // Filtro por tipo de venta
+    if (tipo_venta !== undefined && String(tipo_venta).trim() !== '') {
+      whereClause.tipo_venta = parseInt(tipo_venta);
+    }
+    
+    // Filtro por rango de fechas
+    if (desde || hasta) {
+      whereClause[Op.and] = whereClause[Op.and] || [];
+      
+      if (desde && String(desde).trim() !== '') {
+        whereClause[Op.and].push(
+          literal(`"venta"."fecha_registro" >= '${String(desde).trim()}'`)
+        );
+      }
+      
+      if (hasta && String(hasta).trim() !== '') {
+        whereClause[Op.and].push(
+          literal(`"venta"."fecha_registro" <= '${String(hasta).trim()}'`)
+        );
+      }
+    }
+    
+    // Calcular totales (solo ventas válidas)
+    let whereTotalVentas;
+    if (estado !== undefined && String(estado).trim() !== '') {
+      whereTotalVentas = { ...whereClause };
+    } else {
+      whereTotalVentas = { ...whereClause, estado: 1 };
+    }
+    
+    const resultadoTotalVentas = await db.venta.findOne({
+      where: whereTotalVentas,
+      attributes: [
+        [Sequelize.fn('COALESCE', 
+          Sequelize.fn('SUM', 
+            Sequelize.literal('monto_total - COALESCE(descuento, 0)')
+          ), 
+          0
+        ), 'total']
+      ],
+      raw: true
+    });
+    const totalVentas = parseFloat(resultadoTotalVentas?.total) || 0;
+    
+    // Obtener ventas
+    const ventasRaw = await db.venta.findAll({
+      where: whereClause,
+      order: [["id_venta", "DESC"]],
+      include: [
+        {
+          model: db.usuario,
+          attributes: ['id_usuario', 'usuario'],
+          include: [{
+            model: db.empleado,
+            attributes: ['nombre', 'ap_paterno', 'ap_materno']
+          }]
+        },
+        {
+          model: db.cliente,
+          attributes: ['id_cliente', 'nombre', 'ap_paterno', 'ap_materno', 'ci_nit', 'celular']
+        }
+      ]
+    });
+    
+    const ventas = ventasRaw.map(v => v.get ? v.get({ plain: true }) : v);
+    
+    // Calcular totales por tipo de pago (solo ventas válidas)
+    let totalEfectivo = 0;
+    let totalQR = 0;
+    let cantEfectivo = 0;
+    let cantQR = 0;
+    let ventasValidas = 0;
+    let ventasAnuladas = 0;
+    
+    for (const v of ventas) {
+      if (v.estado === 2) {
+        ventasAnuladas++;
+        continue;
+      }
+      
+      ventasValidas++;
+      const montoNum = parseFloat(v.monto_total) || 0;
+      const descuentoNum = parseFloat(v.descuento) || 0;
+      const totalVenta = montoNum - descuentoNum;
+      
+      if (v.tipo_pago === 2) {
+        totalQR += totalVenta;
+        cantQR++;
+      } else {
+        totalEfectivo += totalVenta;
+        cantEfectivo++;
+      }
+    }
+    
+    // Procesar ventas
+    const ventasProcesadas = ventas.map((venta) => {
+      const usuario = venta.usuario ? {
+        id_usuario: venta.usuario.id_usuario,
+        nombre_usuario: venta.usuario.usuario,
+        nombre_completo: venta.usuario.empleado 
+          ? `${venta.usuario.empleado.nombre} ${venta.usuario.empleado.ap_paterno} ${venta.usuario.empleado.ap_materno}`.trim()
+          : venta.usuario.usuario
+      } : null;
+      
+      const cliente = venta.cliente ? {
+        id_cliente: venta.cliente.id_cliente,
+        nombre_completo: `${venta.cliente.nombre} ${venta.cliente.ap_paterno} ${venta.cliente.ap_materno}`.trim(),
+        ci_nit: venta.cliente.ci_nit,
+        celular: venta.cliente.celular
+      } : null;
+      
+      const monto = parseFloat(venta.monto_total) || 0;
+      const descuento = parseFloat(venta.descuento) || 0;
+      const total = monto - descuento;
+      
+      return {
+        id_venta: venta.id_venta,
+        nro_venta: venta.nro_venta,
+        fecha_registro: venta.fecha_registro,
+        usuario: usuario,
+        cliente: cliente,
+        tipo_venta: venta.tipo_venta === 2 ? 'Facturado' : 'Normal',
+        tipo_venta_valor: venta.tipo_venta,
+        tipo_pago: venta.tipo_pago === 2 ? 'QR' : 'Efectivo',
+        tipo_pago_valor: venta.tipo_pago,
+        monto_total: parseFloat(monto.toFixed(2)),
+        descuento: parseFloat(descuento.toFixed(2)),
+        total: parseFloat(total.toFixed(2)),
+        estado: venta.estado === 1 ? 'Válida' :  'Anulada',
+        estado_valor: venta.estado,
+        incluida_en_totales: venta.estado === 1
+      };
+    });
+    
+    // Construir respuesta
+    const respuesta = {
+      fecha_generacion: new Date().toLocaleString('es-ES'),
+      filtros: {
+        desde: desde || null,
+        hasta: hasta || null,
+        id_usuario: id_usuario || null,
+        id_cliente: id_cliente || null,
+        estado: estado || null,
+        tipo_venta: tipo_venta || null,
+        orden: orden || null
+      },
+      totales: {
+        total_ventas: ventas.length,
+        ventas_validas: ventasValidas,
+        ventas_anuladas: ventasAnuladas,
+        monto_total_general: parseFloat(totalVentas.toFixed(2)),
+        total_efectivo: parseFloat(totalEfectivo.toFixed(2)),
+        cantidad_efectivo: cantEfectivo,
+        total_qr: parseFloat(totalQR.toFixed(2)),
+        cantidad_qr: cantQR
+      },
+      nota: "Los totales solo incluyen ventas con estado=1 (Válidas). Las ventas anuladas se muestran pero no se suman.",
+      ventas: ventasProcesadas
+    };
+    
+    return res.status(200).json(respuesta);
+    
+  } catch (error) {
+    console.error("Error en obtenerDatosVentasResumido:", error);
+    return res.status(500).json({ 
+      mensaje: "Error al obtener los datos de ventas", 
+      error: error.message 
+    });
+  }
+};
+
+// Obtener datos de ventas detallado para vista previa (sin generar PDF)
+const obtenerDatosVentasDetallado = async (req, res) => {
+  try {
+    const {
+      desde,
+      hasta,
+      id_usuario,
+      estado,
+      id_cliente,
+      tipo_venta
+    } = req.query;
+    
+    const whereClause = {};
+    
+    // Filtro por cliente
+    if (id_cliente && String(id_cliente).trim() !== '') {
+      whereClause.id_cliente = parseInt(id_cliente);
+    }
+    
+    // Filtro por estado
+    if (estado !== undefined && String(estado).trim() !== '') {
+      whereClause.estado = parseInt(estado);
+    }
+    
+    // Filtro por usuario
+    if (id_usuario && String(id_usuario).trim() !== '') {
+      whereClause.id_usuario = parseInt(id_usuario);
+    }
+    
+    // Filtro por tipo de venta
+    if (tipo_venta !== undefined && String(tipo_venta).trim() !== '') {
+      whereClause.tipo_venta = parseInt(tipo_venta);
+    }
+    
+    // Filtro por rango de fechas
+    if (desde || hasta) {
+      whereClause[Op.and] = whereClause[Op.and] || [];
+      
+      if (desde && String(desde).trim() !== '') {
+        whereClause[Op.and].push(
+          literal(`"venta"."fecha_registro" >= '${String(desde).trim()}'`)
+        );
+      }
+      
+      if (hasta && String(hasta).trim() !== '') {
+        whereClause[Op.and].push(
+          literal(`"venta"."fecha_registro" <= '${String(hasta).trim()}'`)
+        );
+      }
+    }
+    
+    // Calcular totales (solo ventas válidas)
+    let whereTotalVentas;
+    if (estado !== undefined && String(estado).trim() !== '') {
+      whereTotalVentas = { ...whereClause };
+    } else {
+      whereTotalVentas = { ...whereClause, estado: 1 };
+    }
+    
+    const resultadoTotalVentas = await db.venta.findOne({
+      where: whereTotalVentas,
+      attributes: [
+        [Sequelize.fn('COALESCE', 
+          Sequelize.fn('SUM', 
+            Sequelize.literal('monto_total - COALESCE(descuento, 0)')
+          ), 
+          0
+        ), 'total']
+      ],
+      raw: true
+    });
+    const totalVentas = parseFloat(resultadoTotalVentas?.total) || 0;
+    
+    // Obtener ventas con detalles
+    const ventasRaw = await db.venta.findAll({
+      where: whereClause,
+      order: [["id_venta", "DESC"]],
+      include: [
+        {
+          model: db.det_venta,
+          include: [
+            {
+              model: db.producto,
+              attributes: ['id_producto', 'nombre', 'codigo']
+            }
+          ]
+        },
+        {
+          model: db.usuario,
+          attributes: ['id_usuario', 'usuario'],
+          include: [{
+            model: db.empleado,
+            attributes: ['nombre', 'ap_paterno', 'ap_materno']
+          }]
+        },
+        {
+          model: db.cliente,
+          attributes: ['id_cliente', 'nombre', 'ap_paterno', 'ap_materno', 'ci_nit', 'celular']
+        }
+      ]
+    });
+    
+    const ventas = ventasRaw.map(v => v.get ? v.get({ plain: true }) : v);
+    
+    // Calcular totales por tipo de pago (solo ventas válidas)
+    let totalEfectivo = 0;
+    let totalQR = 0;
+    let cantEfectivo = 0;
+    let cantQR = 0;
+    let ventasValidas = 0;
+    let ventasAnuladas = 0;
+    
+    for (const v of ventas) {
+      if (v.estado === 2) {
+        ventasAnuladas++;
+        continue;
+      }
+      
+      ventasValidas++;
+      const montoNum = parseFloat(v.monto_total) || 0;
+      const descuentoNum = parseFloat(v.descuento) || 0;
+      const totalVenta = montoNum - descuentoNum;
+      
+      if (v.tipo_pago === 2) {
+        totalQR += totalVenta;
+        cantQR++;
+      } else {
+        totalEfectivo += totalVenta;
+        cantEfectivo++;
+      }
+    }
+    
+    // Procesar ventas con detalles
+    const ventasProcesadas = ventas.map((venta) => {
+      const usuario = venta.usuario ? {
+        id_usuario: venta.usuario.id_usuario,
+        nombre_usuario: venta.usuario.usuario,
+        nombre_completo: venta.usuario.empleado 
+          ? `${venta.usuario.empleado.nombre} ${venta.usuario.empleado.ap_paterno} ${venta.usuario.empleado.ap_materno}`.trim()
+          : venta.usuario.usuario
+      } : null;
+      
+      const cliente = venta.cliente ? {
+        id_cliente: venta.cliente.id_cliente,
+        nombre_completo: `${venta.cliente.nombre} ${venta.cliente.ap_paterno} ${venta.cliente.ap_materno}`.trim(),
+        ci_nit: venta.cliente.ci_nit,
+        celular: venta.cliente.celular
+      } : null;
+      
+      const detalles = (venta.det_ventas || venta.det_venta || []).map((det) => ({
+        id_detventa: det.id_detventa,
+        producto: det.producto ? {
+          id_producto: det.producto.id_producto,
+          nombre: det.producto.nombre,
+          codigo: det.producto.codigo
+        } : null,
+        cantidad: parseFloat(det.cantidad) || 0,
+        precio_unitario: parseFloat((det.precio_unitario || 0).toFixed(2)),
+        sub_total: parseFloat((det.sub_total || 0).toFixed(2))
+      }));
+      
+      const monto = parseFloat(venta.monto_total) || 0;
+      const descuento = parseFloat(venta.descuento) || 0;
+      const total = monto - descuento;
+      
+      return {
+        id_venta: venta.id_venta,
+        nro_venta: venta.nro_venta,
+        fecha_registro: venta.fecha_registro,
+        usuario: usuario,
+        cliente: cliente,
+        tipo_venta: venta.tipo_venta === 2 ? 'Facturado' : 'Normal',
+        tipo_venta_valor: venta.tipo_venta,
+        tipo_pago: venta.tipo_pago === 2 ? 'QR' : 'Efectivo',
+        tipo_pago_valor: venta.tipo_pago,
+        monto_total: parseFloat(monto.toFixed(2)),
+        descuento: parseFloat(descuento.toFixed(2)),
+        total: parseFloat(total.toFixed(2)),
+        estado: venta.estado === 1 ? 'Válida' : venta.estado === 2 ? 'Anulada' : String(venta.estado),
+        estado_valor: venta.estado,
+        detalles: detalles,
+        incluida_en_totales: venta.estado === 1
+      };
+    });
+    
+    // Construir respuesta
+    const respuesta = {
+      fecha_generacion: new Date().toLocaleString('es-ES'),
+      filtros: {
+        desde: desde || null,
+        hasta: hasta || null,
+        id_usuario: id_usuario || null,
+        id_cliente: id_cliente || null,
+        estado: estado || null,
+        tipo_venta: tipo_venta || null
+      },
+      totales: {
+        total_ventas: ventas.length,
+        ventas_validas: ventasValidas,
+        ventas_anuladas: ventasAnuladas,
+        monto_total_general: parseFloat(totalVentas.toFixed(2)),
+        total_efectivo: parseFloat(totalEfectivo.toFixed(2)),
+        cantidad_efectivo: cantEfectivo,
+        total_qr: parseFloat(totalQR.toFixed(2)),
+        cantidad_qr: cantQR
+      },
+      nota: "Los totales solo incluyen ventas con estado=1 (Válidas). Las ventas anuladas se muestran pero no se suman.",
+      ventas: ventasProcesadas
+    };
+    
+    return res.status(200).json(respuesta);
+    
+  } catch (error) {
+    console.error("Error en obtenerDatosVentasDetallado:", error);
+    return res.status(500).json({ 
+      mensaje: "Error al obtener los datos de ventas detalladas", 
+      error: error.message 
+    });
+  }
+};
+
+module.exports = { ventaNota, reporteVentasResumido, reporteVentasDetallado, obtenerDatosVentasResumido, obtenerDatosVentasDetallado };

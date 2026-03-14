@@ -1,14 +1,20 @@
 const express = require('express'); //para hacer otro archivo del mismo tipo copiar tal cual esta linea
 const router = express.Router();// esta tambien
-const { ventaNota, reporteVentasResumido, reporteVentasDetallado } = require('../../controladores/reportes/reportesVenta')
+const { ventaNota, reporteVentasResumido, reporteVentasDetallado, obtenerDatosVentasResumido, obtenerDatosVentasDetallado } = require('../../controladores/reportes/reportesVenta')
 
 // Nota de venta individual
 router.post('/notaVenta/:idVenta', ventaNota)
 
-// Reporte de ventas resumido (tabla con totales)
+// Obtener datos de ventas resumido (JSON para vista previa)
+router.get('/reporteVentas-resumido/datos', obtenerDatosVentasResumido)
+
+// Reporte de ventas resumido (PDF - tabla con totales)
 router.post('/reporteVentas-resumido', reporteVentasResumido)
 
-// Reporte de ventas detallado (con productos de cada venta)
+// Obtener datos de ventas detallado (JSON para vista previa)
+router.get('/reporteVentas-detallado/datos', obtenerDatosVentasDetallado)
+
+// Reporte de ventas detallado (PDF - con productos de cada venta)
 router.post('/reporteVentas-detallado', reporteVentasDetallado)
 
 module.exports = router

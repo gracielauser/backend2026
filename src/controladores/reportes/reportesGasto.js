@@ -407,4 +407,225 @@ const reporteGastos = async (req, res) => {
   }
 };
 
-module.exports = { reporteGastos };
+// Obtener datos de gastos para vista previa (sin generar PDF)
+const obtenerDatosGastos = async (req, res) => {
+  try {
+    const {
+      id_usuario,
+      id_categoria,
+      estado,
+      desde,
+      hasta
+    } = req.query;
+    
+    console.log('Obtener datos de gastos - parámetros:', req.query);
+    
+    // Construir filtros para gastos
+    const whereGasto = {};
+    
+    // Filtro por usuario específico
+    if (id_usuario && String(id_usuario).trim() !== '') {
+      whereGasto.id_usuario = parseInt(id_usuario);
+    }
+    
+    // Filtro por categoría
+    if (id_categoria !== undefined && String(id_categoria).trim() !== '') {
+      whereGasto.categoria = parseInt(id_categoria);
+    }
+    
+    // Filtro por estado
+    if (estado !== undefined && String(estado).trim() !== '') {
+      whereGasto.estado = parseInt(estado);
+    }
+    
+    // Filtro por rango de fechas
+    if (desde || hasta) {
+      if (desde && String(desde).trim() !== '') {
+        whereGasto.fecha = whereGasto.fecha || {};
+        whereGasto.fecha[Op.gte] = String(desde).trim();
+      }
+      
+      if (hasta && String(hasta).trim() !== '') {
+        whereGasto.fecha = whereGasto.fecha || {};
+        whereGasto.fecha[Op.lte] = String(hasta).trim();
+      }
+    }
+    
+    // Obtener gastos con usuario
+    const gastosRaw = await db.gasto.findAll({
+      where: whereGasto,
+      order: [["fecha", "DESC"], ["id_gasto", "DESC"]],
+      include: [
+        {
+          model: db.usuario,
+          required: false,
+          attributes: ['id_usuario', 'usuario'],
+          include: [{
+            model: db.empleado,
+            required: false,
+            attributes: ['nombre', 'ap_paterno', 'ap_materno']
+          }]
+        },
+      ]
+    });
+    
+    const gastos = gastosRaw.map(g => g.get ? g.get({ plain: true }) : g);
+    
+    // Agrupar gastos por mes
+    const gastosPorMes = {};
+    
+    // Contadores por estado
+    let totalValidos = 0;
+    let totalAnulados = 0;
+    let cantidadValidos = 0;
+    let cantidadAnulados = 0;
+    let totalGeneral = 0;
+    
+    // Resumen por usuario
+    const gastosPorUsuario = {};
+    
+    gastos.forEach(gasto => {
+      const mesKey = getMesAnioKey(gasto.fecha);
+      const mesNombre = getNombreMes(gasto.fecha);
+      const monto = parseFloat(gasto.monto) || 0;
+      
+      // Agrupar por mes
+      if (!gastosPorMes[mesKey]) {
+        gastosPorMes[mesKey] = {
+          mes_anio: mesKey,
+          nombre_mes: mesNombre,
+          gastos: [],
+          total: 0,
+          cantidad: 0
+        };
+      }
+      
+      gastosPorMes[mesKey].gastos.push(gasto);
+      gastosPorMes[mesKey].total += monto;
+      gastosPorMes[mesKey].cantidad++;
+      
+      totalGeneral += monto;
+      
+      // Contabilizar por estado
+      if (gasto.estado === 1) {
+        totalValidos += monto;
+        cantidadValidos++;
+      } else {
+        totalAnulados += monto;
+        cantidadAnulados++;
+      }
+      
+      // Agrupar por usuario
+      const usuarioId = gasto.id_usuario || 'sin_usuario';
+      if (!gastosPorUsuario[usuarioId]) {
+        const nombreUsuario = gasto.usuario?.empleado 
+          ? `${gasto.usuario.empleado.nombre || ''} ${gasto.usuario.empleado.ap_paterno || ''} ${gasto.usuario.empleado.ap_materno || ''}`.trim()
+          : (gasto.usuario?.usuario || 'Sin usuario');
+        gastosPorUsuario[usuarioId] = {
+          id_usuario: usuarioId !== 'sin_usuario' ? gasto.id_usuario : null,
+          nombre: nombreUsuario,
+          total: 0,
+          cantidad: 0,
+          total_validos: 0,
+          cantidad_validos: 0,
+          total_anulados: 0,
+          cantidad_anulados: 0
+        };
+      }
+      gastosPorUsuario[usuarioId].total += monto;
+      gastosPorUsuario[usuarioId].cantidad++;
+      
+      if (gasto.estado === 1) {
+        gastosPorUsuario[usuarioId].total_validos += monto;
+        gastosPorUsuario[usuarioId].cantidad_validos++;
+      } else {
+        gastosPorUsuario[usuarioId].total_anulados += monto;
+        gastosPorUsuario[usuarioId].cantidad_anulados++;
+      }
+    });
+    
+    // Convertir gastos por mes a array y ordenar
+    const mesesArray = Object.keys(gastosPorMes)
+      .sort()
+      .map(mesKey => {
+        const datosMes = gastosPorMes[mesKey];
+        
+        // Procesar gastos del mes
+        const gastosProcesados = datosMes.gastos.map(gasto => {
+          const usuario = gasto.usuario ? {
+            id_usuario: gasto.usuario.id_usuario,
+            nombre_usuario: gasto.usuario.usuario,
+            nombre_completo: gasto.usuario.empleado 
+              ? `${gasto.usuario.empleado.nombre} ${gasto.usuario.empleado.ap_paterno} ${gasto.usuario.empleado.ap_materno}`.trim()
+              : gasto.usuario.usuario
+          } : null;
+          
+          return {
+            id_gasto: gasto.id_gasto,
+            fecha: gasto.fecha,
+            usuario: usuario,
+            categoria: gasto.categoria,
+            descripcion: gasto.descripcion || '',
+            monto: parseFloat((gasto.monto || 0).toFixed(2)),
+            estado: gasto.estado === 1 ? 'Válido' : 'Anulado',
+            estado_valor: gasto.estado,
+            incluido_en_totales: gasto.estado === 1
+          };
+        });
+        
+        return {
+          mes_anio: datosMes.mes_anio,
+          nombre_mes: datosMes.nombre_mes,
+          cantidad_gastos: datosMes.cantidad,
+          total_mes: parseFloat(datosMes.total.toFixed(2)),
+          gastos: gastosProcesados
+        };
+      });
+    
+    // Convertir resumen por usuario a array
+    const usuariosArray = Object.values(gastosPorUsuario).map(usuario => ({
+      id_usuario: usuario.id_usuario,
+      nombre: usuario.nombre,
+      total: parseFloat(usuario.total.toFixed(2)),
+      cantidad: usuario.cantidad,
+      total_validos: parseFloat(usuario.total_validos.toFixed(2)),
+      cantidad_validos: usuario.cantidad_validos,
+      total_anulados: parseFloat(usuario.total_anulados.toFixed(2)),
+      cantidad_anulados: usuario.cantidad_anulados
+    }));
+    
+    // Construir respuesta
+    const respuesta = {
+      fecha_generacion: new Date().toLocaleString('es-ES'),
+      filtros: {
+        id_usuario: id_usuario || null,
+        id_categoria: id_categoria || null,
+        estado: estado || null,
+        desde: desde || null,
+        hasta: hasta || null
+      },
+      totales: {
+        total_gastos: gastos.length,
+        gastos_validos: cantidadValidos,
+        gastos_anulados: cantidadAnulados,
+        monto_total_general: parseFloat(totalGeneral.toFixed(2)),
+        monto_total_validos: parseFloat(totalValidos.toFixed(2)),
+        monto_total_anulados: parseFloat(totalAnulados.toFixed(2))
+      },
+      nota: "Los totales incluyen todos los gastos. Los gastos anulados están marcados con estado='Anulado'.",
+      gastos_por_mes: mesesArray,
+      resumen_por_usuario: usuariosArray
+    };
+    
+    return res.status(200).json(respuesta);
+    
+  } catch (error) {
+    console.error("Error en obtenerDatosGastos:", error);
+    return res.status(500).json({ 
+      mensaje: "Error al obtener los datos de gastos", 
+      error: error.message 
+    });
+  }
+};
+
+module.exports = { reporteGastos, obtenerDatosGastos };

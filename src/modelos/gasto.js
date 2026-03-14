@@ -24,8 +24,8 @@ module.exports = function(sequelize, DataTypes) {
       }
     },
     categoria: {
-      type: DataTypes.INTEGER,
-      allowNull: false
+      type: DataTypes.STRING(30),
+      allowNull: true
     },
     descripcion: {
       type: DataTypes.STRING(50),

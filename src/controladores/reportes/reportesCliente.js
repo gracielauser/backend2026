@@ -83,7 +83,7 @@ const reporteClientes = async (req, res) => {
     
     // Agregar filas de datos
     clientes.forEach((cliente, index) => {
-      const nombreCompleto = `${cliente.nombre || ''} ${cliente.apellido_paterno || ''} ${cliente.apellido_materno || ''}`.trim();
+      const nombreCompleto = `${cliente.nombre || ''} ${cliente.ap_paterno || ''} ${cliente.ap_materno || ''}`.trim();
       const ciNit = cliente.ci_nit || '';
       const celular = cliente.celular || '';
       const email = cliente.email || '';
@@ -180,13 +180,13 @@ const reporteClientes = async (req, res) => {
     const colWidths = [30, '*', 70, 70, 100, 60, 80];
     
     const printer = new PdfPrinter(fonts);
-    const logo = convertImageToBase64('../assets/logo.png');
+    const logo = convertImageToBase64('../assets/logo2.jpeg');
     
     const filtroLines = [];
     if (id_cliente) {
       const clienteFiltrado = clientes.find(c => c.id_cliente == id_cliente);
       if (clienteFiltrado) {
-        const nombreCli = `${clienteFiltrado.nombre || ''} ${clienteFiltrado.apellido_paterno || ''}`.trim();
+        const nombreCli = `${clienteFiltrado.nombre || ''} ${clienteFiltrado.ap_paterno || ''} ${clienteFiltrado.ap_materno || ''}`.trim();
         filtroLines.push(`Cliente: ${nombreCli}`);
       }
     }
@@ -258,4 +258,146 @@ const reporteClientes = async (req, res) => {
   }
 };
 
-module.exports = { reporteClientes };
+// Obtener datos de clientes para vista previa (sin generar PDF)
+const obtenerDatosClientes = async (req, res) => {
+  try {
+    const {
+      id_cliente,
+      desde,
+      hasta
+    } = req.query || {};
+    
+    console.log('Obtener datos de clientes - parámetros:', req.query);
+    
+    // Construir filtros para clientes
+    const whereCliente = {};
+    
+    // Filtro por cliente específico
+    if (id_cliente && String(id_cliente).trim() !== '') {
+      whereCliente.id_cliente = parseInt(id_cliente);
+    }
+    
+    // Filtro por rango de fechas en cliente.fecha_registro
+    if (desde || hasta) {
+      if (desde && String(desde).trim() !== '') {
+        whereCliente.fecha_registro = whereCliente.fecha_registro || {};
+        whereCliente.fecha_registro[Op.gte] = String(desde).trim();
+      }
+      
+      if (hasta && String(hasta).trim() !== '') {
+        whereCliente.fecha_registro = whereCliente.fecha_registro || {};
+        whereCliente.fecha_registro[Op.lte] = String(hasta).trim() + ' 23:59:59';
+      }
+    }
+    
+    console.log('Where clause clientes:', whereCliente);
+    
+    // Obtener clientes con sus ventas válidas
+    const clientesRaw = await db.cliente.findAll({
+      where: whereCliente,
+      order: [["id_cliente", "ASC"]],
+      include: [
+        {
+          model: db.venta,
+          required: false,
+          where: {
+            estado: {
+              [Op.ne]: 2 // Excluir ventas anuladas
+            }
+          }
+        }
+      ]
+    });
+    
+    if (!clientesRaw || clientesRaw.length === 0) {
+      return res.status(404).json({ mensaje: "No se encontraron clientes" });
+    }
+    
+    // Convertir a objetos planos
+    const clientes = clientesRaw.map(c => c.get ? c.get({ plain: true }) : c);
+    
+    let totalBeneficio = 0;
+    let totalCompras = 0;
+    let clientesConCompras = 0;
+    
+    // Procesar datos de clientes
+    const clientesProcesados = clientes.map((cliente, index) => {
+      const nombreCompleto = `${cliente.nombre || ''} ${cliente.ap_paterno || ''} ${cliente.ap_materno || ''}`.trim();
+      const ciNit = cliente.ci_nit || '';
+      const celular = cliente.celular || '';
+      const email = cliente.email || '';
+      
+      // Calcular beneficio del cliente (solo ventas válidas, estado != 2)
+      let beneficioCliente = 0;
+      let cantidadCompras = 0;
+      
+      if (cliente.venta && cliente.venta.length > 0) {
+        cliente.venta.forEach(venta => {
+          const monto = parseFloat(venta.monto_total) || 0;
+          const descuento = parseFloat(venta.descuento) || 0;
+          beneficioCliente += (monto - descuento);
+          cantidadCompras++;
+        });
+      }
+      
+      // Acumular totales
+      totalBeneficio += beneficioCliente;
+      totalCompras += cantidadCompras;
+      if (cantidadCompras > 0) {
+        clientesConCompras++;
+      }
+      
+      return {
+        numero: index + 1,
+        id_cliente: cliente.id_cliente,
+        nombre_completo: nombreCompleto,
+        nombre: cliente.nombre || '',
+        ap_paterno: cliente.ap_paterno || '',
+        ap_materno: cliente.ap_materno || '',
+        ci_nit: ciNit,
+        celular: celular,
+        email: email,
+        direccion: cliente.direccion || '',
+        fecha_registro: cliente.fecha_registro || null,
+        cantidad_compras: cantidadCompras,
+        beneficio_total: parseFloat(beneficioCliente.toFixed(2))
+      };
+    });
+    
+    // Calcular estadísticas
+    const promedioComprasPorCliente = clientes.length > 0 ? parseFloat((totalCompras / clientes.length).toFixed(2)) : 0;
+    const promedioBeneficioPorCliente = clientes.length > 0 ? parseFloat((totalBeneficio / clientes.length).toFixed(2)) : 0;
+    
+    // Construir respuesta
+    const respuesta = {
+      fecha_generacion: new Date().toLocaleString('es-ES'),
+      filtros: {
+        id_cliente: id_cliente || null,
+        desde: desde || null,
+        hasta: hasta || null
+      },
+      totales: {
+        total_clientes: clientes.length,
+        clientes_con_compras: clientesConCompras,
+        total_compras: totalCompras,
+        total_beneficio: parseFloat(totalBeneficio.toFixed(2))
+      },
+      estadisticas: {
+        promedio_compras_por_cliente: promedioComprasPorCliente,
+        promedio_beneficio_por_cliente: promedioBeneficioPorCliente
+      },
+      clientes: clientesProcesados
+    };
+    
+    return res.status(200).json(respuesta);
+    
+  } catch (error) {
+    console.error("Error en obtenerDatosClientes:", error);
+    return res.status(500).json({ 
+      mensaje: "Error al obtener los datos de clientes", 
+      error: error.message 
+    });
+  }
+};
+
+module.exports = { reporteClientes, obtenerDatosClientes };
