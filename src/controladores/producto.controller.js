@@ -176,6 +176,7 @@ const kardex = async (req, res) => {
           include: [
             {
               model: db.usuario,
+              as: 'usuario_registro',
               attributes: ['id_usuario', 'usuario'],
               required: false,
               include: [
@@ -205,6 +206,7 @@ const kardex = async (req, res) => {
           include: [
             {
               model: db.usuario,
+              as: 'usuario_registro',
               attributes: ['id_usuario', 'usuario'],
               required: false,
               include: [
@@ -266,12 +268,12 @@ const kardex = async (req, res) => {
         movimiento: `+${item.cantidad}`,
         referencia: item.compra?.nro_compra || null,
         fecha: item.compra?.fecha_registro || null,
-        responsable: item.compra?.usuario?.id_usuario ? {
-          id_usuario: item.compra.usuario.id_usuario,
-          nombre_usuario: item.compra.usuario.usuario,
-          nombre_completo: item.compra.usuario.empleado?.nombre 
-            ? `${item.compra.usuario.empleado.nombre} ${item.compra.usuario.empleado.ap_paterno} ${item.compra.usuario.empleado.ap_materno}`
-            : item.compra.usuario.usuario
+        responsable: item.compra?.usuario_registro?.id_usuario ? {
+          id_usuario: item.compra.usuario_registro.id_usuario,
+          nombre_usuario: item.compra.usuario_registro.usuario,
+          nombre_completo: item.compra.usuario_registro.empleado?.nombre 
+            ? `${item.compra.usuario_registro.empleado.nombre} ${item.compra.usuario_registro.empleado.ap_paterno} ${item.compra.usuario_registro.empleado.ap_materno}`
+            : item.compra.usuario_registro.usuario
         } : null
       });
     });
@@ -291,12 +293,12 @@ const kardex = async (req, res) => {
         movimiento: `-${item.cantidad}`,
         referencia: item.ventum?.nro_venta || null,
         fecha: item.ventum?.fecha_registro || null,
-        responsable: item.ventum?.usuario?.id_usuario ? {
-          id_usuario: item.ventum.usuario.id_usuario,
-          nombre_usuario: item.ventum.usuario.usuario,
-          nombre_completo: item.ventum.usuario.empleado?.nombre 
-            ? `${item.ventum.usuario.empleado.nombre} ${item.ventum.usuario.empleado.ap_paterno} ${item.ventum.usuario.empleado.ap_materno}`
-            : item.ventum.usuario.usuario
+        responsable: item.ventum?.usuario_registro?.id_usuario ? {
+          id_usuario: item.ventum.usuario_registro.id_usuario,
+          nombre_usuario: item.ventum.usuario_registro.usuario,
+          nombre_completo: item.ventum.usuario_registro.empleado?.nombre 
+            ? `${item.ventum.usuario_registro.empleado.nombre} ${item.ventum.usuario_registro.empleado.ap_paterno} ${item.ventum.usuario_registro.empleado.ap_materno}`
+            : item.ventum.usuario_registro.usuario
         } : null
       });
     });
