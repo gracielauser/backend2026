@@ -7,10 +7,10 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false,
       primaryKey: true
     },
-    ci: {
-      type: DataTypes.INTEGER,
-      allowNull: false
-    },
+    // ci: {
+    //   type: DataTypes.INTEGER,
+    //   allowNull: true
+    // },
     nombre: {
       type: DataTypes.STRING(40),
       allowNull: false
@@ -27,10 +27,10 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.INTEGER,
       allowNull: true
     },
-    genero: {
-      type: DataTypes.INTEGER,
-      allowNull: true
-    },
+    // genero: {
+    //   type: DataTypes.INTEGER,
+    //   allowNull: true
+    // },
     estado: {
       type: DataTypes.INTEGER,
       allowNull: true,

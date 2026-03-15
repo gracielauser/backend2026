@@ -19,14 +19,14 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.STRING(100),
       allowNull: true
     },
-    precio_compra: {
-      type: DataTypes.DOUBLE,
-      allowNull: true
-    },
-    precio_venta: {
-      type: DataTypes.DOUBLE,
-      allowNull: true
-    },
+    // precio_compra: {
+    //   type: DataTypes.DOUBLE,
+    //   allowNull: true
+    // },
+    // precio_venta: {
+    //   type: DataTypes.DOUBLE,
+    //   allowNull: true
+    // },
     id_producto: {
       type: DataTypes.INTEGER,
       allowNull: false,
