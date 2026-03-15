@@ -53,7 +53,14 @@ module.exports = function(sequelize, DataTypes) {
         key: 'id_cliente'
       }
     },
-
+    id_usuario_anula: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'usuario',
+        key: 'id_usuario'
+      }
+    },
     nro_venta: {
       type: DataTypes.STRING(10),
       allowNull: false,

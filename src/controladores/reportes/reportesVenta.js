@@ -1097,6 +1097,14 @@ const reporteVentasDetallado = async (req, res) => {
         },
         {
           model: db.usuario,
+          as: 'usuario_registro',
+          include: [{
+            model: db.empleado,
+          }]
+        },
+        {
+          model: db.usuario,
+          as: 'usuario_anulador',
           include: [{
             model: db.empleado,
           }]
@@ -1166,9 +1174,23 @@ const reporteVentasDetallado = async (req, res) => {
     let counter = 1;
     ventas.forEach((venta, index) => {
       const detalles = venta.det_ventas || venta.det_venta || [];
-      const nombreUsuario = venta.usuario?.empleado 
-        ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.ap_paterno || ''} ${venta.usuario.empleado.ap_materno || ''}`.trim()
-        : (venta.usuario?.usuario || 'Sin usuario');
+      
+      // Determinar usuario a mostrar según el estado
+      let nombreUsuario, labelUsuario;
+      if (venta.estado === 2) {
+        // Venta anulada - mostrar usuario anulador
+        nombreUsuario = venta.usuario_anulador?.empleado 
+          ? `${venta.usuario_anulador.empleado.nombre || ''} ${venta.usuario_anulador.empleado.ap_paterno || ''} ${venta.usuario_anulador.empleado.ap_materno || ''}`.trim()
+          : (venta.usuario_anulador?.usuario || 'Sin usuario');
+        labelUsuario = 'Anulado por';
+      } else {
+        // Venta válida - mostrar usuario registro
+        nombreUsuario = venta.usuario_registro?.empleado 
+          ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''}`.trim()
+          : (venta.usuario_registro?.usuario || 'Sin usuario');
+        labelUsuario = 'Registrado por';
+      }
+      
       const nombreCliente = venta.cliente 
         ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim()
         : 'Sin cliente';
@@ -1204,7 +1226,7 @@ const reporteVentasDetallado = async (req, res) => {
             stack: [
               { text: `Cliente: ${nombreCliente}`, fontSize: 9, bold: true },
               { text: `CI/NIT: ${venta.cliente?.ci_nit || 'N/A'}`, fontSize: 9 },
-              { text: `Usuario: ${nombreUsuario}`, fontSize: 9 }
+              { text: `${labelUsuario}: ${nombreUsuario}`, fontSize: 9, color: esAnulada ? '#f44336' : '#333333', bold: esAnulada }
             ]
           },
           {
@@ -1473,6 +1495,16 @@ const obtenerDatosVentasResumido = async (req, res) => {
         {
           model: db.usuario,
           attributes: ['id_usuario', 'usuario'],
+          as: 'usuario_registro',
+          include: [{
+            model: db.empleado,
+            attributes: ['nombre', 'ap_paterno', 'ap_materno']
+          }]
+        },
+        {
+          model: db.usuario,
+          attributes: ['id_usuario', 'usuario'],
+          as: 'usuario_anulador',
           include: [{
             model: db.empleado,
             attributes: ['nombre', 'ap_paterno', 'ap_materno']
@@ -1517,13 +1549,35 @@ const obtenerDatosVentasResumido = async (req, res) => {
     
     // Procesar ventas
     const ventasProcesadas = ventas.map((venta) => {
-      const usuario = venta.usuario ? {
-        id_usuario: venta.usuario.id_usuario,
-        nombre_usuario: venta.usuario.usuario,
-        nombre_completo: venta.usuario.empleado 
-          ? `${venta.usuario.empleado.nombre} ${venta.usuario.empleado.ap_paterno} ${venta.usuario.empleado.ap_materno}`.trim()
-          : venta.usuario.usuario
-      } : null;
+      // Determinar usuario según el estado
+      let usuario = null;
+      let labelUsuario = '';
+      
+      if (venta.estado === 2) {
+        // Venta anulada - mostrar usuario anulador
+        if (venta.usuario_anulador) {
+          usuario = {
+            id_usuario: venta.usuario_anulador.id_usuario,
+            nombre_usuario: venta.usuario_anulador.usuario,
+            nombre_completo: venta.usuario_anulador.empleado 
+              ? `${venta.usuario_anulador.empleado.nombre} ${venta.usuario_anulador.empleado.ap_paterno} ${venta.usuario_anulador.empleado.ap_materno}`.trim()
+              : venta.usuario_anulador.usuario
+          };
+        }
+        labelUsuario = 'Anulado por';
+      } else {
+        // Venta válida - mostrar usuario registro
+        if (venta.usuario_registro) {
+          usuario = {
+            id_usuario: venta.usuario_registro.id_usuario,
+            nombre_usuario: venta.usuario_registro.usuario,
+            nombre_completo: venta.usuario_registro.empleado 
+              ? `${venta.usuario_registro.empleado.nombre} ${venta.usuario_registro.empleado.ap_paterno} ${venta.usuario_registro.empleado.ap_materno}`.trim()
+              : venta.usuario_registro.usuario
+          };
+        }
+        labelUsuario = 'Registrado por';
+      }
       
       const cliente = venta.cliente ? {
         id_cliente: venta.cliente.id_cliente,
@@ -1541,6 +1595,7 @@ const obtenerDatosVentasResumido = async (req, res) => {
         nro_venta: venta.nro_venta,
         fecha_registro: venta.fecha_registro,
         usuario: usuario,
+        label_usuario: labelUsuario,
         cliente: cliente,
         tipo_venta: venta.tipo_venta === 2 ? 'Facturado' : 'Normal',
         tipo_venta_valor: venta.tipo_venta,
@@ -1681,6 +1736,16 @@ const obtenerDatosVentasDetallado = async (req, res) => {
         },
         {
           model: db.usuario,
+          as: 'usuario_registro',
+          attributes: ['id_usuario', 'usuario'],
+          include: [{
+            model: db.empleado,
+            attributes: ['nombre', 'ap_paterno', 'ap_materno']
+          }]
+        },
+        {
+          model: db.usuario,
+          as: 'usuario_anulador',
           attributes: ['id_usuario', 'usuario'],
           include: [{
             model: db.empleado,
@@ -1726,13 +1791,35 @@ const obtenerDatosVentasDetallado = async (req, res) => {
     
     // Procesar ventas con detalles
     const ventasProcesadas = ventas.map((venta) => {
-      const usuario = venta.usuario ? {
-        id_usuario: venta.usuario.id_usuario,
-        nombre_usuario: venta.usuario.usuario,
-        nombre_completo: venta.usuario.empleado 
-          ? `${venta.usuario.empleado.nombre} ${venta.usuario.empleado.ap_paterno} ${venta.usuario.empleado.ap_materno}`.trim()
-          : venta.usuario.usuario
-      } : null;
+      // Determinar usuario según el estado
+      let usuario = null;
+      let labelUsuario = '';
+      
+      if (venta.estado === 2) {
+        // Venta anulada - mostrar usuario anulador
+        if (venta.usuario_anulador) {
+          usuario = {
+            id_usuario: venta.usuario_anulador.id_usuario,
+            nombre_usuario: venta.usuario_anulador.usuario,
+            nombre_completo: venta.usuario_anulador.empleado 
+              ? `${venta.usuario_anulador.empleado.nombre} ${venta.usuario_anulador.empleado.ap_paterno} ${venta.usuario_anulador.empleado.ap_materno}`.trim()
+              : venta.usuario_anulador.usuario
+          };
+        }
+        labelUsuario = 'Anulado por';
+      } else {
+        // Venta válida - mostrar usuario registro
+        if (venta.usuario_registro) {
+          usuario = {
+            id_usuario: venta.usuario_registro.id_usuario,
+            nombre_usuario: venta.usuario_registro.usuario,
+            nombre_completo: venta.usuario_registro.empleado 
+              ? `${venta.usuario_registro.empleado.nombre} ${venta.usuario_registro.empleado.ap_paterno} ${venta.usuario_registro.empleado.ap_materno}`.trim()
+              : venta.usuario_registro.usuario
+          };
+        }
+        labelUsuario = 'Registrado por';
+      }
       
       const cliente = venta.cliente ? {
         id_cliente: venta.cliente.id_cliente,
@@ -1762,6 +1849,7 @@ const obtenerDatosVentasDetallado = async (req, res) => {
         nro_venta: venta.nro_venta,
         fecha_registro: venta.fecha_registro,
         usuario: usuario,
+        label_usuario: labelUsuario,
         cliente: cliente,
         tipo_venta: venta.tipo_venta === 2 ? 'Facturado' : 'Normal',
         tipo_venta_valor: venta.tipo_venta,

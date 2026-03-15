@@ -14,6 +14,14 @@ const listar = async (req, res) => {
                     ]
                 }, {
                     model: db.usuario,
+                    as: 'usuario_registro',
+                    include: [{
+                        model: db.empleado,
+                    }]
+                },
+                {
+                    model: db.usuario,
+                    as: 'usuario_anulador',
                     include: [{
                         model: db.empleado,
                     }]
@@ -56,7 +64,7 @@ const agregar = async (req, res) => {
         if(venta.tipo_venta==2){
             await db.factura.create({
                 id_venta: venta.id_venta,
-                impuesto: (venta.monto_total-venta.descuento)*0.16,
+                impuesto: ((venta.monto_total-venta.descuento)*0.03).toFixed(3),
                 total: venta.monto_total-venta.descuento
             })
         }
