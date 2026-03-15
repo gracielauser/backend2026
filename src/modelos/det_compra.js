@@ -27,6 +27,10 @@ module.exports = function(sequelize, DataTypes) {
         key: 'id_compra'
       }
     },
+    precio_venta: {
+      type: DataTypes.DOUBLE,
+      allowNull: false
+    },
     id_producto: {
       type: DataTypes.INTEGER,
       allowNull: false,

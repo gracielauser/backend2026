@@ -29,6 +29,9 @@ const agregar= async (req,res)=>{
         for(det of newCompra.detalle){
             det.id_compra = nCompra.id_compra
             if(det.producto.id_producto[0] === 'N'){//primer caracter del id_producto es N, es nuevo
+                det.producto.stock = det.cantidad
+                det.producto.precio_compra = det.precio_unitario
+                det.producto.precio_venta = det.precio_venta
                 const nuevoProducto = await db.producto.create(det.producto)
                 det.id_producto = nuevoProducto.id_producto
             }else{
