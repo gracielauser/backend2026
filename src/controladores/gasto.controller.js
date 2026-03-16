@@ -4,7 +4,6 @@ const listar = async (req, res)=>{
     try {
         const gasto = await db.gasto.findAll({
               order: [['id_gasto','DESC']],
-            where: {estado: 1},
             include:[
                 {
                     model: db.usuario,

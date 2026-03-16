@@ -326,8 +326,7 @@ const reporteCatalogoProductos = async (req, res) => {
     // Preparar contenido del PDF
     const content = [];
     const printer = new PdfPrinter(fonts);
-    const logo = await convertImageToBase64("../assets/logo2.jpeg");
-
+    const logo = convertImageToBase64("../assets/logo2.jpeg");
     // Construir filas de productos (3 productos por fila)
     for (let i = 0; i < productos.length; i += 3) {
       const producto1 = productos[i];
@@ -341,7 +340,7 @@ const reporteCatalogoProductos = async (req, res) => {
         let fotoProducto = null;
         if (producto.foto) {
           try {
-            fotoProducto = convertImageToBase64(`../../../uploads/${producto.foto}`);
+            fotoProducto = convertImageToBase64(`../../uploads/${producto.foto}`);
           } catch (error) {
             console.log(`No se pudo cargar la foto: ${producto.foto}`);
             fotoProducto = null;
