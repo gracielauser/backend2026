@@ -632,6 +632,7 @@ const obtenerDatosComprasResumido = async (req, res) => {
         },
         { 
           model: db.usuario, 
+          as: 'usuario_registro',
           attributes: ['id_usuario', 'usuario'],
           include: [
             {
@@ -673,12 +674,12 @@ const obtenerDatosComprasResumido = async (req, res) => {
         email: compra.proveedor.email || ''
       } : null;
 
-      const usuario = compra.usuario ? {
-        id_usuario: compra.usuario.id_usuario,
-        nombre_usuario: compra.usuario.usuario,
-        nombre_completo: compra.usuario.empleado ? 
-          `${compra.usuario.empleado.nombre} ${compra.usuario.empleado.ap_paterno} ${compra.usuario.empleado.ap_materno}` : 
-          compra.usuario.usuario
+      const usuario = compra.usuario_registro ? {
+        id_usuario: compra.usuario_registro.id_usuario,
+        nombre_usuario: compra.usuario_registro.usuario,
+        nombre_completo: compra.usuario_registro.empleado ? 
+          `${compra.usuario_registro.empleado.nombre} ${compra.usuario_registro.empleado.ap_paterno} ${compra.usuario_registro.empleado.ap_materno}` : 
+          compra.usuario_registro.usuario
       } : null;
       
       const detalles = compra.det_compras || [];
@@ -754,6 +755,7 @@ const obtenerDatosComprasDetallado = async (req, res) => {
         },
         { 
           model: db.usuario, 
+          as: 'usuario_registro',
           attributes: ['id_usuario', 'usuario'],
           include: [
             {
@@ -802,12 +804,12 @@ const obtenerDatosComprasDetallado = async (req, res) => {
         email: compra.proveedor.email || ''
       } : null;
 
-      const usuario = compra.usuario ? {
-        id_usuario: compra.usuario.id_usuario,
-        nombre_usuario: compra.usuario.usuario,
-        nombre_completo: compra.usuario.empleado ? 
-          `${compra.usuario.empleado.nombre} ${compra.usuario.empleado.ap_paterno} ${compra.usuario.empleado.ap_materno}` : 
-          compra.usuario.usuario
+      const usuario = compra.usuario_registro ? {
+        id_usuario: compra.usuario_registro.id_usuario,
+        nombre_usuario: compra.usuario_registro.usuario,
+        nombre_completo: compra.usuario_registro.empleado ? 
+          `${compra.usuario_registro.empleado.nombre} ${compra.usuario_registro.empleado.ap_paterno} ${compra.usuario_registro.empleado.ap_materno}` : 
+          compra.usuario_registro.usuario
       } : null;
       
       const detalles = compra.det_compras || [];
