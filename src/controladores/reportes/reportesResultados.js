@@ -576,6 +576,7 @@ const obtenerDatosResultados = async (req, res) => {
         {
           model: db.usuario,
           required: false,
+          as: 'usuario_registro',
           include: [
             {
               model: db.empleado,
@@ -631,11 +632,11 @@ const obtenerDatosResultados = async (req, res) => {
           nombre: venta.cliente.nombre,
           apellido: venta.cliente.apellido
         } : null,
-        usuario: venta.usuario ? {
-          nombre_usuario: venta.usuario.nombre_usuario,
-          empleado: venta.usuario.empleado ? {
-            nombre: venta.usuario.empleado.nombre,
-            apellido: venta.usuario.empleado.apellido
+        usuario: venta.usuario_registro ? {
+          nombre_usuario: venta.usuario_registro.nombre_usuario,
+          empleado: venta.usuario_registro.empleado ? {
+            nombre: venta.usuario_registro.empleado.nombre,
+            apellido: venta.usuario_registro.empleado.apellido
           } : null
         } : null
       });
@@ -694,11 +695,11 @@ const obtenerDatosResultados = async (req, res) => {
         fecha: gasto.fecha,
         categoria: gasto.categoria,
         descripcion: gasto.descripcion,
-        usuario: gasto.usuario ? {
-          nombre_usuario: gasto.usuario.nombre_usuario,
-          empleado: gasto.usuario.empleado ? {
-            nombre: gasto.usuario.empleado.nombre,
-            apellido: gasto.usuario.empleado.apellido
+        usuario: gasto.usuario_registro ? {
+          nombre_usuario: gasto.usuario_registro.nombre_usuario,
+          empleado: gasto.usuario_registro.empleado ? {
+            nombre: gasto.usuario_registro.empleado.nombre,
+            apellido: gasto.usuario_registro.empleado.apellido
           } : null
         } : null
       });
