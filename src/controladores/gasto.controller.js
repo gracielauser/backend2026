@@ -4,7 +4,19 @@ const listar = async (req, res)=>{
     try {
         const gasto = await db.gasto.findAll({
               order: [['id_gasto','DESC']],
-            where: {estado: 1}
+            where: {estado: 1},
+            include:[
+                {
+                    model: db.usuario,
+                    attributes: ['id_usuario', 'usuario'],
+                    include: [
+                        {
+                            model: db.empleado,
+                            attributes: ['nombre', 'ap_paterno','ap_materno']
+                        }
+                    ]
+                }
+            ]
         })
         return res.json(gasto)
     } catch (error) {
