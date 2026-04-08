@@ -42,9 +42,7 @@ const listar = async (req, res) => {
 const agregar = async (req, res) => {
     try {
         const newVenta = req.body
-        console.log(req.body);
         const detalles = newVenta.detallesVenta//rescatar antes de mandar a crear pq sino va borrar lo que no coincida con la tabla
-        console.log('LLEGA ESTA VEMNTA', newVenta)
         const venta = await db.venta.create(newVenta)//
         await db.venta.update(
             { nro_venta: venta.nro_venta + venta.id_venta },
@@ -54,13 +52,11 @@ const agregar = async (req, res) => {
         for (det of detalles) {
             det.id_venta = venta.id_venta
             const productoActual = await db.producto.findOne({where: {id_producto: det.id_producto}})
-            console.log('antes de actualizar',productoActual);
             
             const stockNew = productoActual.stock-det.cantidad
             await db.det_venta.create(det)
             await db.producto.update({stock: stockNew},{where: {id_producto: det.id_producto}})
         }
-        console.log('ventaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',venta);
         if(venta.tipo_venta==2){
             await db.factura.create({
                 id_venta: venta.id_venta,

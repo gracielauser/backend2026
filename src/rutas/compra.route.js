@@ -5,7 +5,7 @@ const {agregar,listar, modificar, anular, recibir} = require('../controladores/c
 router.get('/listar',listar)
 router.post('/agregar',agregar)
 router.put('/modificar',modificar)
-router.put('/anular/:id_compra',anular)
+router.put('/anular',anular)
 router.put('/recibir',recibir)
 
 module.exports = router

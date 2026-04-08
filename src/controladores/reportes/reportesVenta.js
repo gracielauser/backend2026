@@ -17,7 +17,7 @@ const ventaNota = async (req, res) => {
     const ventaRaw = await db.venta.findByPk(id_venta, {
       include: [
         { model: db.cliente },
-        { model: db.usuario, include: [{ model: db.empleado }] },
+        { model: db.usuario, as: 'usuario_registro', include: [{ model: db.empleado }] },
         { model: db.det_venta, include: [{ model: db.producto }] }
       ]
     });
@@ -123,7 +123,7 @@ const generarNotaVenta = async (venta, res) => {
             {
               table: {
                 body: [
-                  [{ text: "Vendedor", bold: true }, safeText(venta.usuario?.empleado ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.ap_paterno || ''} ${venta.usuario.empleado.ap_materno || ''}`.trim() : venta.usuario?.usuario || 'Sin usuario')],
+                  [{ text: "Vendedor", bold: true }, safeText(venta.usuario_registro?.empleado ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''}`.trim() : venta.usuario_registro?.usuario || 'Sin usuario')],
                   [{ text: "Cliente", bold: true }, safeText(venta.cliente ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim() : 'Sin cliente')],
                   [{ text: "CI/NIT", bold: true }, safeText(venta.cliente?.ci_nit || venta.cliente?.CI_NIT)],
                   [{ text: "Tel", bold: true }, safeText(venta.cliente?.celular || venta.cliente?.CELULAR)]
@@ -534,9 +534,9 @@ const buildVentaRowPdf = (venta, counter, orden) => {
   
   // Usuario (si no está agrupado por usuario)
   if (orden !== 'usuario') {
-    const nombreUsuario = venta.usuario?.empleado 
-      ? `${venta.usuario.empleado.nombre || ''} ${venta.usuario.empleado.apellido_paterno || ''}`.trim()
-      : (venta.usuario?.usuario || 'Sin usuario');
+    const nombreUsuario = venta.usuario_registro?.empleado 
+      ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.apellido_paterno || ''}`.trim()
+      : (venta.usuario_registro?.usuario || 'Sin usuario');
     row.push({ text: nombreUsuario, fontSize: 8 });
   }
   

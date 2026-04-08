@@ -2,7 +2,7 @@ const express = require('express'); //para hacer otro archivo del mismo tipo cop
 const router = express.Router();// esta tambien
 const { ventaNota, reporteVentasResumido, reporteVentasDetallado, obtenerDatosVentasResumido, obtenerDatosVentasDetallado } = require('../../controladores/reportes/reportesVenta')
 
-// Nota de venta individual
+// Nota de venta individual o factura internamente detecta
 router.post('/notaVenta/:idVenta', ventaNota)
 
 // Obtener datos de ventas resumido (JSON para vista previa)
