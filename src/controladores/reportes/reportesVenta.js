@@ -4,6 +4,7 @@ const { db } = require("../../config/dataBase");
 const PdfPrinter = require("pdfmake");
 const fonts = require("../../utils/pdfFonts");
 const convertImageToBase64 = require("../../utils/imageToBase64");
+const qrcode = require('qrcode');
 const { Op, Sequelize, literal } = require("sequelize");
 
 const ventaNota = async (req, res) => {
@@ -74,11 +75,10 @@ const generarNotaVenta = async (venta, res) => {
 
     // tabla de items
     const itemsHeader = [
-      { text: "N°", bold: true },
+      { text: "Nro", bold: true },
       { text: "Producto", bold: true },
-      { text: "Cant.", bold: true, alignment: "right" },
+      { text: "Cantidad", bold: true, alignment: "right" },
       { text: "P.Unit", bold: true, alignment: "right" },
-      { text: "Descuento", bold: true, alignment: "right" },
       { text: "SubTotal", bold: true, alignment: "right" },
     ];
 
@@ -87,13 +87,11 @@ const generarNotaVenta = async (venta, res) => {
       const cantidad = Number(d.cantidad || d.cant || 0) || 0;
       const precioUnit = Number(d.precio_unitario || d.precio || 0) || 0;
       const subtotalItem = Number(d.sub_total || d.subtotal) || cantidad * precioUnit;
-      const descuentoItem = (precioUnit * cantidad) - subtotalItem;
       return [
         { text: String(i + 1) },
         productoNombre,
         { text: String(cantidad), alignment: "right" },
         { text: formatMoney(precioUnit), alignment: "right" },
-        { text: formatMoney(descuentoItem>0?descuentoItem:0), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" }
       ];
     });
@@ -105,28 +103,37 @@ const generarNotaVenta = async (venta, res) => {
       return acc + st;
     }, 0);
     const descuento = Number(venta.descuento) || 0;
-    const monto_total = Number(venta.monto_total) || Number(venta.monto) || subtotal - descuento;
+    const totalCalculado = subtotal - descuento;
 
     const docDefinition = {
       content: [
         {
           columns: [
-            { image: logo, width: 60 },
+            {
+              stack: [
+                { image: logo, width: 60 },
+                { text: 'Auto Accesorios Pinedo', bold: true, fontSize: 11, margin: [0, 8, 0, 2] },
+                { text: 'Av. Circunvalación & Timoteo Raña', fontSize: 8 },
+                { text: 'Tarija - Bolivia', fontSize: 8 },
+                { text: 'Tel: +591 71895925', fontSize: 8 }
+              ],
+              width: 160
+            },
             {
               stack: [
                 { text: "NOTA DE VENTA", style: "title", alignment: "center" },
-                { text: `Nro: ${safeText(venta.nro_venta || venta.nro || "")}`, alignment: "center" },
-                { text: `Fecha: ${safeText(venta.fecha_registro || venta.fecha || Date.now())}`, alignment: "center" }
+                { text: `Nro: ${safeText(venta.nro_venta || venta.nro || "")}`, alignment: "center", margin: [0, 4, 0, 0] },
+                { text: `Fecha: ${safeText(venta.fecha_registro || venta.fecha || Date.now())}`, alignment: "center", margin: [0, 2, 0, 0] }
               ],
               width: "*"
             },
             {
               table: {
                 body: [
-                  [{ text: "Vendedor", bold: true }, safeText(venta.usuario_registro?.empleado ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''}`.trim() : venta.usuario_registro?.usuario || 'Sin usuario')],
-                  [{ text: "Cliente", bold: true }, safeText(venta.cliente ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim() : 'Sin cliente')],
-                  [{ text: "CI/NIT", bold: true }, safeText(venta.cliente?.ci_nit || venta.cliente?.CI_NIT)],
-                  [{ text: "Tel", bold: true }, safeText(venta.cliente?.celular || venta.cliente?.CELULAR)]
+                  [{ text: "Vendedor", bold: true, border: [false, false, false, false] }, { text: safeText(venta.usuario_registro?.empleado ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''}`.trim() : venta.usuario_registro?.usuario || 'Sin usuario'), border: [false, false, false, false] }],
+                  [{ text: "Cliente", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim() : 'Sin cliente'), border: [false, false, false, false] }],
+                  [{ text: "CI/NIT", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente?.ci_nit || venta.cliente?.CI_NIT), border: [false, false, false, false] }],
+                  [{ text: "Tel", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente?.celular || venta.cliente?.CELULAR), border: [false, false, false, false] }]
                 ]
               },
               layout: "noBorders",
@@ -138,7 +145,7 @@ const generarNotaVenta = async (venta, res) => {
         {
           table: {
             headerRows: 1,
-            widths: ["auto", "*", "auto", "auto", "auto", "auto"],
+            widths: ["auto", "*", "auto", "auto", "auto"],
             body: [itemsHeader, ...itemsBody]
           },
           layout: "lightHorizontalLines"
@@ -147,12 +154,12 @@ const generarNotaVenta = async (venta, res) => {
           columns: [
             { width: "*", text: "" },
             {
-              width: 200,
+              width: 220,
               table: {
                 body: [
                   [{ text: "Subtotal", alignment: "left" }, { text: formatMoney(subtotal), alignment: "right" }],
                   [{ text: "Descuento", alignment: "left" }, { text: formatMoney(descuento), alignment: "right" }],
-                  [{ text: "Total", bold: true, alignment: "left" }, { text: formatMoney(monto_total-descuento), bold: true, alignment: "right" }]
+                  [{ text: "Total", bold: true, alignment: "left" }, { text: formatMoney(totalCalculado), bold: true, alignment: "right" }]
                 ]
               },
               layout: "noBorders"
@@ -160,7 +167,8 @@ const generarNotaVenta = async (venta, res) => {
           ]
         },
         { text: "\n" },
-        { text: `Observaciones: ${safeText(venta.descripcion || venta.DESCRIPCION || "")}`, italics: true }
+        { text: `Observaciones: ${safeText(venta.descripcion || venta.DESCRIPCION || "")}`, italics: true },
+        { text: "Gracias por su preferencia.", alignment: "center", margin: [0, 10, 0, 0], italics: true }
       ],
       styles: {
         title: { fontSize: 16, bold: true },
@@ -223,15 +231,15 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
       return acc + st;
     }, 0);
     const descuento = Number(venta.descuento) || 0;
-    const monto_total = Number(venta.monto_total) || Number(venta.monto) || subtotal - descuento;
+    const totalCalculado = subtotal - descuento;
     const impuesto = Number(factura?.impuesto) || 0;
-    const totalConImpuesto = monto_total - descuento;
+    const totalConImpuesto = totalCalculado;
     
     // Datos de factura (con placeholders si no existen en BD)
     const nroFactura = factura?.nro_factura || venta.nro_venta || "0";
     const codigoAutorizacion = "79040011007"; // Placeholder - debe venir de sistema de impuestos
     // const fechaLimiteEmision = "31/12/2026"; // Placeholder
-    const codigoControl = generarCodigoControl(nroFactura, empresaNIT, new Date(venta.fecha_registro || Date.now()), monto_total); // Generar código de control
+    const codigoControl = generarCodigoControl(nroFactura, empresaNIT, new Date(venta.fecha_registro || Date.now()), totalCalculado); // Generar código de control
     
     // Cliente
     const clienteNombre = venta.cliente 
@@ -241,11 +249,11 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
 
     // tabla de items
     const itemsHeader = [
-      { text: "Cant.", bold: true, alignment: "center", fillColor: '#eeeeee' },
-      { text: "Detalle", bold: true, fillColor: '#eeeeee' },
+      { text: "Nro", bold: true, alignment: "center", fillColor: '#eeeeee' },
+      { text: "Producto", bold: true, fillColor: '#eeeeee' },
+      { text: "Cantidad", bold: true, alignment: "center", fillColor: '#eeeeee' },
       { text: "P. Unitario", bold: true, alignment: "right", fillColor: '#eeeeee' },
-      { text: "Descuento", bold: true, alignment: "right", fillColor: '#eeeeee' },
-      { text: "Subtotal", bold: true, alignment: "right", fillColor: '#eeeeee' },
+      { text: "Subtotal", bold: true, alignment: "right", fillColor: '#eeeeee' }
     ];
 
     const itemsBody = detalles.map((d, i) => {
@@ -253,18 +261,21 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
       const cantidad = Number(d.cantidad || d.cant || 0) || 0;
       const precioUnit = Number(d.precio_unitario || d.precio|| 0) || 0;
       const subtotalItem = Number(d.sub_total || d.subtotal) || cantidad * precioUnit;
-      const descuentoItem = (precioUnit * cantidad) - subtotalItem;
       return [
-        { text: String(cantidad), alignment: "center" },
+        { text: String(i + 1), alignment: "center" },
         productoNombre,
+        { text: String(cantidad), alignment: "center" },
         { text: formatMoney(precioUnit), alignment: "right" },
-        { text: formatMoney(descuentoItem>0?descuentoItem:0), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" }
       ];
     });
 
     // Convertir monto a literal
-    const montoLiteral = numeroALiteral(totalConImpuesto);
+    const montoLiteral = numeroALiteral(totalCalculado);
+
+    // Generar datos para QR (formato boliviano)
+    const fechaFormateada = new Date(venta.fecha_registro || Date.now()).toISOString().split('T')[0].replace(/-/g, '/');
+    const qrData = `https://www.impuestos.gob.bo/`;
 
     const docDefinition = {
       pageSize: 'LETTER',
@@ -343,7 +354,7 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
         {
           table: {
             headerRows: 1,
-            widths: [40, '*', 70, 60, 70],
+            widths: [30, '*', 50, 70, 70],
             body: [itemsHeader, ...itemsBody]
           },
           layout: {
@@ -369,8 +380,8 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
                 body: [
                   [{ text: 'SUBTOTAL Bs', alignment: 'right' }, { text: formatMoney(subtotal), alignment: 'right' }],
                   [{ text: 'DESCUENTO Bs', alignment: 'right' }, { text: formatMoney(descuento), alignment: 'right' }],
-                  [{ text: 'IMPORTE BASE Bs', alignment: 'right', bold: true }, { text: formatMoney(monto_total), alignment: 'right', bold: true }],
-                  [{ text: 'TOTAL Bs', alignment: 'right', bold: true, fontSize: 11 }, { text: formatMoney(totalConImpuesto), alignment: 'right', bold: true, fontSize: 11 }]
+                  [{ text: 'IMPORTE BASE Bs', alignment: 'right', bold: true }, { text: formatMoney(totalCalculado), alignment: 'right', bold: true }],
+                  [{ text: 'TOTAL Bs', alignment: 'right', bold: true, fontSize: 11 }, { text: formatMoney(totalCalculado), alignment: 'right', bold: true, fontSize: 11 }]
                 ]
               },
               layout: 'noBorders',
@@ -404,6 +415,14 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
               margin: [0, 5, 0, 0]
             }
           ]
+        },
+        
+        // Código QR
+        {
+          qr: qrData,
+          fit: 100,
+          alignment: 'center',
+          margin: [0, 20, 0, 0]
         }
       ],
       styles: {
