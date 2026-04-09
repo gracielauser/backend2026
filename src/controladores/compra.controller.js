@@ -112,6 +112,16 @@ const modificar = async (req, res) => {
 
     // Update or create detalles
     for (const det of compraModificada.detalle) {
+      if(det.producto && det.producto.id_producto[0] === "N"){
+        det.producto.stock = det.cantidad;
+        det.producto.precio_compra = det.precio_unitario;
+        det.producto.precio_venta = det.precio_venta;
+        det.producto.id_categoria = Number(det.producto.id_categoria);
+        det.producto.id_producto = null;
+        det.producto.foto = null;
+        const nuevoProducto = await db.producto.create(det.producto);
+        det.id_producto = nuevoProducto.id_producto;
+      }
       if (det.id_detcompra !== null && det.id_detcompra !== undefined) {
         // Update existing
         await db.det_compra.update(det, {
