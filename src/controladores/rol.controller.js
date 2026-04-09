@@ -25,9 +25,9 @@ const asignar = async (req,res)=>{
     try {
         const nuevoUsuRol = req.body;
         //destruir todos lo roles anteriores del usuario
-        await db.usu_rol.destroy({ where: { id_usuario: nuevoUsuRol.id_usuario } });
+        await db.usu_rol.destroy({ where: { id_usuario: nuevoUsuRol[0].id_usuario } });
         //crear los nuevos roles asignados
-        await db.usu_rol.create(nuevoUsuRol);
+        await db.usu_rol.bulkCreate(nuevoUsuRol);
         return res.json('asignado exitosamente');
     } catch (error) {
         console.log(error);
