@@ -30,7 +30,8 @@ const reporteComprasResumido = async (req, res) => {
           attributes: ['id_proveedor', 'nombre', 'ciudad', 'celular', 'email'] 
         },
         { 
-          model: db.usuario, 
+          model: db.usuario,
+          as: 'usuario_registro',
           attributes: ['id_usuario', 'usuario'],
           include: [
             {
@@ -88,11 +89,12 @@ const reporteComprasResumido = async (req, res) => {
 
     compras.forEach((compra) => {
       const proveedor = compra.proveedor ? safeText(compra.proveedor.nombre) : "N/A";
-      const usuario = compra.usuario ? 
-        (compra.usuario.empleado ? 
-          `${safeText(compra.usuario.empleado.nombre)} ${safeText(compra.usuario.empleado.ap_paterno)} ${safeText(compra.usuario.empleado.ap_materno)}` : 
-          safeText(compra.usuario.usuario)) : 
-        "N/A";
+      const usr = compra.usuario_registro;
+      const usuario = usr
+        ? (usr.empleado
+          ? `${safeText(usr.empleado.nombre)} ${safeText(usr.empleado.ap_paterno)} ${safeText(usr.empleado.ap_materno)}`
+          : safeText(usr.usuario))
+        : "N/A";
       
       const detalles = compra.det_compras || [];
       const cantidadProductos = detalles.length;
@@ -273,7 +275,8 @@ const reporteComprasDetallado = async (req, res) => {
           attributes: ['id_proveedor', 'nombre', 'ciudad', 'celular', 'email'] 
         },
         { 
-          model: db.usuario, 
+          model: db.usuario,
+          as: 'usuario_registro',
           attributes: ['id_usuario', 'usuario'],
           include: [
             {
@@ -373,11 +376,12 @@ const reporteComprasDetallado = async (req, res) => {
     compras.forEach((compra, index) => {
       const detalles = compra.det_compras || [];
       const proveedor = compra.proveedor ? safeText(compra.proveedor.nombre) : 'N/A';
-      const usuario = compra.usuario ? 
-        (compra.usuario.empleado ? 
-          `${safeText(compra.usuario.empleado.nombre)} ${safeText(compra.usuario.empleado.ap_paterno)} ${safeText(compra.usuario.empleado.ap_materno)}` : 
-          safeText(compra.usuario.usuario)) : 
-        "N/A";
+      const usr = compra.usuario_registro;
+      const usuario = usr
+        ? (usr.empleado
+          ? `${safeText(usr.empleado.nombre)} ${safeText(usr.empleado.ap_paterno)} ${safeText(usr.empleado.ap_materno)}`
+          : safeText(usr.usuario))
+        : "N/A";
       
       const esAnulada = compra.estado === 2;
       const estadoTexto = compra.estado === 1 ? 'ACTIVA' : 'ANULADA';
