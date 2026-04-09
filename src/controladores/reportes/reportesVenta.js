@@ -5,6 +5,7 @@ const PdfPrinter = require("pdfmake");
 const fonts = require("../../utils/pdfFonts");
 const convertImageToBase64 = require("../../utils/imageToBase64");
 const qrcode = require('qrcode');
+const { sendPdfReport } = require("../../utils/auxiliares");
 const { Op, Sequelize, literal } = require("sequelize");
 
 const ventaNota = async (req, res) => {
@@ -29,6 +30,7 @@ const ventaNota = async (req, res) => {
     const venta = ventaRaw.get ? ventaRaw.get({ plain: true }) : ventaRaw;
     
     // Decidir si generar nota o factura
+    const enviarEmail = req.query.enviarEmail === 'true' || req.body?.enviarEmail === true || false;
     if (nota) {
       // Generar nota de venta
       return await generarNotaVenta(venta, res);
@@ -38,7 +40,7 @@ const ventaNota = async (req, res) => {
         where: { id_venta: venta.id_venta }
       });
       // Generar factura boliviana
-      return await generarFacturaBoliviana(venta, facturaData, res);
+      return await generarFacturaBoliviana(enviarEmail, venta, facturaData, res);
     } else {
       // Por defecto generar nota de venta
       return await generarNotaVenta(venta, res);
@@ -195,7 +197,7 @@ const generarNotaVenta = async (venta, res) => {
 };
 
 // Función auxiliar para generar Factura Boliviana
-const generarFacturaBoliviana = async (venta, factura, res) => {
+const generarFacturaBoliviana = async (enviarEmail=false, venta, factura, res) => {
   try {
     // normalizar nombre de la colección de detalles
     const detalles =
@@ -437,8 +439,24 @@ const generarFacturaBoliviana = async (venta, factura, res) => {
     const pdfDoc = printer.createPdfKitDocument(docDefinition);
     const chunks = [];
     pdfDoc.on("data", (c) => chunks.push(c));
-    pdfDoc.on("end", () => {
+    pdfDoc.on("end", async () => {
       const pdfBuffer = Buffer.concat(chunks);
+
+      // Enviar por email si se solicitó y el cliente tiene email
+      if (enviarEmail && venta.cliente?.email) {
+        try {
+          await sendPdfReport({
+            to: venta.cliente.email,
+            subject: `Factura Nº ${String(nroFactura).padStart(10, '0')} - Auto Accesorios Pinedo`,
+            text: `Estimado/a ${clienteNombre},\n\nAdjunto encontrará su factura Nº ${String(nroFactura).padStart(10, '0')}.\n\nGracias por su preferencia.\nAuto Accesorios Pinedo`,
+            filename: `factura_${String(nroFactura).padStart(10, '0')}.pdf`,
+            pdfBuffer
+          });
+        } catch (mailErr) {
+          console.error('Error al enviar email de factura:', mailErr.message);
+        }
+      }
+
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename=factura_${String(nroFactura).padStart(10, '0')}.pdf`);
       res.send(pdfBuffer);
@@ -544,60 +562,58 @@ const formatFecha = (fecha) => {
 // Helper para construir fila de venta en PDF
 const buildVentaRowPdf = (venta, counter, orden) => {
   const row = [];
-  
+
   // Nro
   row.push({ text: String(counter), fontSize: 8 });
-  
+
   // Nro Venta
   row.push({ text: String(venta.nro_venta || ''), fontSize: 8 });
-  
+
   // Usuario (si no está agrupado por usuario)
   if (orden !== 'usuario') {
-    const nombreUsuario = venta.usuario_registro?.empleado 
-      ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.apellido_paterno || ''}`.trim()
-      : (venta.usuario_registro?.usuario || 'Sin usuario');
+    const usr = venta.usuario;
+    const nombreUsuario = usr?.empleado
+      ? `${usr.empleado.nombre || ''} ${usr.empleado.ap_paterno || ''}`.trim()
+      : (usr?.usuario || usr?.nombre_usuario || 'Sin usuario');
     row.push({ text: nombreUsuario, fontSize: 8 });
   }
-  
+
   // Fecha
-  const fecha = formatFecha(venta.fecha_registro);
-  row.push({ text: fecha, fontSize: 8 });
-  
+  row.push({ text: formatFecha(venta.fecha_registro), fontSize: 8 });
+
   // Cliente (si no está agrupado por cliente)
   if (orden !== 'cliente') {
-    const nombreCliente = venta.cliente 
-      ? `${venta.cliente.nombre || ''} ${venta.cliente.apellido_paterno || ''}`.trim()
+    const cli = venta.cliente;
+    const nombreCliente = cli
+      ? `${cli.nombre || ''} ${cli.ap_paterno || ''}`.trim() || 'Sin cliente'
       : 'Sin cliente';
     row.push({ text: nombreCliente, fontSize: 8 });
   }
-  
-  // Tipo venta (si no está agrupado por tipo_venta)
+
+  // Tipo venta (si no está agrupado por tipo_venta) — viene como string del frontend
   if (orden !== 'tipo_venta') {
-    const tipoText = venta.tipo_venta === 2 ? 'Facturado' : 'Normal';
-    row.push({ text: tipoText, fontSize: 8 });
+    row.push({ text: venta.tipo_venta || 'Normal', fontSize: 8 });
   }
-  
+
   // Monto
   const monto = parseFloat(venta.monto_total) || 0;
   row.push({ text: formatNumber(monto), alignment: 'right', fontSize: 8 });
-  
+
   // Descuento
   const descuento = parseFloat(venta.descuento) || 0;
   row.push({ text: formatNumber(descuento), alignment: 'right', fontSize: 8 });
-  
-  // Total
-  const total = monto - descuento;
+
+  // Total (ya viene calculado)
+  const total = parseFloat(venta.total) ?? (monto - descuento);
   row.push({ text: formatNumber(total), alignment: 'right', fontSize: 8, bold: true });
-  
-  // Tipo de pago
-  const tipoPagoText = venta.tipo_pago === 2 ? 'QR' : 'Efectivo';
-  row.push({ text: tipoPagoText, fontSize: 8, alignment: 'center' });
-  
-  // Estado
-  const estadoText = venta.estado === 1 ? 'Válido' : venta.estado === 2 ? 'Anulado' : String(venta.estado);
-  const estadoColor = venta.estado === 1 ? '#00aa00' : '#aa0000';
-  row.push({ text: estadoText, fontSize: 8, alignment: 'center', color: estadoColor });
-  
+
+  // Tipo de pago — viene como string del frontend
+  row.push({ text: venta.tipo_pago || 'Efectivo', fontSize: 8, alignment: 'center' });
+
+  // Estado — viene como string del frontend
+  const estadoColor = venta.estado_valor === 1 ? '#00aa00' : '#aa0000';
+  row.push({ text: venta.estado || 'N/A', fontSize: 8, alignment: 'center', color: estadoColor });
+
   return row;
 };
 
@@ -605,98 +621,24 @@ const buildVentaRowPdf = (venta, counter, orden) => {
 const reporteVentasResumido = async (req, res) => {
   try {
     const {
-      desde,
-      hasta,
-      usuario = '',
-      id_usuario,
+      filtros = {},
+      lista = [],
       nombreSistema = 'Auto Accesorios Pinedo',
-      estado,
-      id_cliente,
-      tipo_venta,
-      orden = null // null, 'cliente', 'usuario', 'tipo_venta'
+      orden = null,
+      usuario = ''
     } = req.body || {};
-    
+
+    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, busqueda } = filtros;
+
     console.log('Reporte de ventas resumido - parámetros:', req.body);
-    
-    const whereClause = {};
-    
-    // Filtro por cliente
-    if (id_cliente && String(id_cliente).trim() !== '') {
-      whereClause.id_cliente = parseInt(id_cliente);
-    }
-    
-    // Filtro por estado
-    if (estado !== undefined && String(estado).trim() !== '') {
-      whereClause.estado = parseInt(estado);
-    }
-    
-    // Filtro por usuario
-    if (id_usuario && String(id_usuario).trim() !== '') {
-      whereClause.id_usuario = parseInt(id_usuario);
-    }
-    
-    // Filtro por tipo de venta
-    if (tipo_venta !== undefined && String(tipo_venta).trim() !== '') {
-      whereClause.tipo_venta = parseInt(tipo_venta);
-    }
-    
-    // Filtro por rango de fechas
-    if (desde || hasta) {
-      whereClause[Op.and] = whereClause[Op.and] || [];
-      
-      if (desde && String(desde).trim() !== '') {
-        whereClause[Op.and].push(
-          literal(`"venta"."fecha_registro" >= '${String(desde).trim()}'`)
-        );
-      }
-      
-      if (hasta && String(hasta).trim() !== '') {
-        whereClause[Op.and].push(
-          literal(`"venta"."fecha_registro" <= '${String(hasta).trim()}'`)
-        );
-      }
-    }
-    
-    console.log('Where clause:', whereClause);
-    
-    // Calcular totales
-    let whereTotalVentas;
-    if (estado !== undefined && String(estado).trim() !== '') {
-      whereTotalVentas = { ...whereClause };
-    } else {
-      whereTotalVentas = { ...whereClause, estado: 1 }; // Por defecto solo válidas
-    }
-    
-    const resultadoTotalVentas = await db.venta.findOne({
-      where: whereTotalVentas,
-      attributes: [
-        [Sequelize.fn('COALESCE', 
-          Sequelize.fn('SUM', 
-            Sequelize.literal('monto_total - COALESCE(descuento, 0)')
-          ), 
-          0
-        ), 'total']
-      ],
-      raw: true
-    });
-    const totalVentas = parseFloat(resultadoTotalVentas?.total) || 0;
-    
-    // Obtener ventas
-    const ventas = await db.venta.findAll({
-      where: whereClause,
-      order: [["id_venta", "DESC"]],
-      include: [
-        {
-          model: db.usuario,
-          include: [{
-            model: db.empleado,
-          }]
-        },
-        {
-          model: db.cliente
-        }
-      ]
-    });
+
+    // Totales desde la lista (solo ventas incluidas en totales)
+    const totalVentas = lista
+      .filter(v => v.incluida_en_totales)
+      .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+
+    // La lista del frontend ya viene filtrada
+    const ventas = lista;
     
     // Construir tabla
     const body = [];
@@ -727,18 +669,18 @@ const reporteVentasResumido = async (req, res) => {
       // Agrupar por cliente
       const byCliente = {};
       for (const v of ventas) {
-        const cid = v.id_cliente || 'sin';
+        const cid = v.cliente?.id_cliente || 'sin';
         if (!byCliente[cid]) byCliente[cid] = [];
         byCliente[cid].push(v);
       }
-      
+
       for (const [cid, ventasCli] of Object.entries(byCliente)) {
         if (!ventasCli.length) continue;
-        
+
         let nombreCliente = 'Sin cliente';
         if (cid !== 'sin') {
           const cli = ventasCli[0].cliente;
-          nombreCliente = cli ? `${cli.nombre || ''} ${cli.apellido_paterno || ''}`.trim() : `Cliente ${cid}`;
+          nombreCliente = cli ? `${cli.nombre || ''} ${cli.ap_paterno || ''}`.trim() || `Cliente ${cid}` : `Cliente ${cid}`;
         }
         
         const groupHeader = [{ text: nombreCliente, colSpan: numCols, bold: true, fillColor: '#eaf7ef' }];
@@ -750,14 +692,9 @@ const reporteVentasResumido = async (req, res) => {
           counter++;
         }
         
-        let clienteTotal = 0;
-        for (const v of ventasCli) {
-          // Excluir ventas anuladas
-          if (v.estado === 2) continue;
-          const montoNum = parseFloat(v.monto_total) || 0;
-          const descuentoNum = parseFloat(v.descuento) || 0;
-          clienteTotal += (montoNum - descuentoNum);
-        }
+        const clienteTotal = ventasCli
+          .filter(v => v.incluida_en_totales)
+          .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
         
         const totalRow = [];
         for (let i = 0; i < numCols; i++) {
@@ -771,19 +708,19 @@ const reporteVentasResumido = async (req, res) => {
       // Agrupar por usuario
       const byUsuario = {};
       for (const v of ventas) {
-        const uid = v.id_usuario || 'sin';
+        const uid = v.usuario?.id_usuario || 'sin';
         if (!byUsuario[uid]) byUsuario[uid] = [];
         byUsuario[uid].push(v);
       }
-      
+
       for (const [uid, ventasUsr] of Object.entries(byUsuario)) {
         if (!ventasUsr.length) continue;
-        
+
         let nombreUsuario = 'Sin usuario';
         if (uid !== 'sin') {
           const usr = ventasUsr[0].usuario;
-          nombreUsuario = usr?.empleado 
-            ? `${usr.empleado.nombre || ''} ${usr.empleado.apellido_paterno || ''}`.trim()
+          nombreUsuario = usr?.empleado
+            ? `${usr.empleado.nombre || ''} ${usr.empleado.ap_paterno || ''}`.trim()
             : (usr?.usuario || `Usuario ${uid}`);
         }
         
@@ -796,14 +733,9 @@ const reporteVentasResumido = async (req, res) => {
           counter++;
         }
         
-        let usuarioTotal = 0;
-        for (const v of ventasUsr) {
-          // Excluir ventas anuladas
-          if (v.estado === 2) continue;
-          const montoNum = parseFloat(v.monto_total) || 0;
-          const descuentoNum = parseFloat(v.descuento) || 0;
-          usuarioTotal += (montoNum - descuentoNum);
-        }
+        const usuarioTotal = ventasUsr
+          .filter(v => v.incluida_en_totales)
+          .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
         
         const totalRow = [];
         for (let i = 0; i < numCols; i++) {
@@ -817,15 +749,15 @@ const reporteVentasResumido = async (req, res) => {
       // Agrupar por tipo de venta
       const byTipo = {};
       for (const v of ventas) {
-        const tid = v.tipo_venta || 1;
+        const tid = v.tipo_venta_valor || 1;
         if (!byTipo[tid]) byTipo[tid] = [];
         byTipo[tid].push(v);
       }
-      
+
       for (const [tid, ventasTipo] of Object.entries(byTipo)) {
         if (!ventasTipo.length) continue;
-        
-        const nombreTipo = tid == 2 ? 'Facturado' : 'Normal';
+
+        const nombreTipo = ventasTipo[0]?.tipo_venta || (tid == 2 ? 'Facturado' : 'Normal');
         
         const groupHeader = [{ text: nombreTipo, colSpan: numCols, bold: true, fillColor: '#eaf7ef' }];
         for (let i = 1; i < numCols; i++) groupHeader.push({});
@@ -836,14 +768,9 @@ const reporteVentasResumido = async (req, res) => {
           counter++;
         }
         
-        let tipoTotal = 0;
-        for (const v of ventasTipo) {
-          // Excluir ventas anuladas
-          if (v.estado === 2) continue;
-          const montoNum = parseFloat(v.monto_total) || 0;
-          const descuentoNum = parseFloat(v.descuento) || 0;
-          tipoTotal += (montoNum - descuentoNum);
-        }
+        const tipoTotal = ventasTipo
+          .filter(v => v.incluida_en_totales)
+          .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
         
         const totalRow = [];
         for (let i = 0; i < numCols; i++) {
@@ -862,17 +789,13 @@ const reporteVentasResumido = async (req, res) => {
     }
     body.push(separatorRow);
     
-    // Calcular totales por método de pago (solo ventas válidas, excluir anuladas)
+    // Calcular totales por método de pago (solo ventas incluidas en totales)
     let totalEfectivo = 0;
     let totalQR = 0;
     for (const v of ventas) {
-      // Excluir ventas anuladas (estado=2)
-      if (v.estado === 2) continue;
-      
-      const montoNum = parseFloat(v.monto_total) || 0;
-      const descuentoNum = parseFloat(v.descuento) || 0;
-      const totalVenta = montoNum - descuentoNum;
-      if (v.tipo_pago === 2) {
+      if (!v.incluida_en_totales) continue;
+      const totalVenta = parseFloat(v.total) || 0;
+      if (v.tipo_pago_valor === 2) {
         totalQR += totalVenta;
       } else {
         totalEfectivo += totalVenta;
@@ -933,33 +856,13 @@ const reporteVentasResumido = async (req, res) => {
     const filtroLines = [];
     if (desde) filtroLines.push(`Desde: ${desde}`);
     if (hasta) filtroLines.push(`Hasta: ${hasta}`);
-    if (id_cliente) {
-      const clienteData = await db.cliente.findByPk(id_cliente);
-      if (clienteData) {
-        filtroLines.push(`Cliente: ${clienteData.nombre || ''} ${clienteData.apellido_paterno || ''}`);
-      }
-    }
-    if (id_usuario) {
-      const usuarioData = await db.usuario.findOne({ 
-        where: { id_usuario },
-        include: [{ model: db.empleado }]
-      });
-      if (usuarioData) {
-        const nombreUsr = usuarioData.empleado 
-          ? `${usuarioData.empleado.nombre || ''} ${usuarioData.empleado.apellido_paterno || ''}`.trim()
-          : usuarioData.usuario;
-        filtroLines.push(`Usuario: ${nombreUsr}`);
-      }
-    }
-    if (nombreSistema) filtroLines.push(`Sistema: ${nombreSistema}`);
-    if (estado !== undefined && estado !== null) {
-      filtroLines.push(`Estado: ${estado == 1 ? 'Válido' : estado == 2 ? 'Anulado' : String(estado)}`);
-    }
-    if (tipo_venta !== undefined && tipo_venta !== null) {
-      filtroLines.push(`Tipo: ${tipo_venta == 2 ? 'Facturado' : 'Normal'}`);
-    }
+    if (estado) filtroLines.push(`Estado: ${estado}`);
+    if (tipo_venta) filtroLines.push(`Tipo venta: ${tipo_venta}`);
+    if (tipo_pago) filtroLines.push(`Tipo pago: ${tipo_pago}`);
+    if (id_cliente) filtroLines.push(`Cliente ID: ${id_cliente}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
     if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
-    
+
     const encabezadoCols = [
       { image: logo, width: 70 },
       {
@@ -1028,143 +931,35 @@ const reporteVentasResumido = async (req, res) => {
 const reporteVentasDetallado = async (req, res) => {
   try {
     const {
-      desde,
-      hasta,
-      usuario = '',
-      id_usuario,
+      filtros = {},
+      lista = [],
       nombreSistema = 'Auto Accesorios Pinedo',
-      estado,
-      id_cliente,
-      tipo_venta
+      usuario = ''
     } = req.body || {};
-    
+
+    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, busqueda } = filtros;
+
     console.log('Reporte de ventas detallado - parámetros:', req.body);
-    
-    const whereClause = {};
-    
-    // Filtro por cliente
-    if (id_cliente && String(id_cliente).trim() !== '') {
-      whereClause.id_cliente = parseInt(id_cliente);
-    }
-    
-    // Filtro por estado
-    if (estado !== undefined && String(estado).trim() !== '') {
-      whereClause.estado = parseInt(estado);
-    }
-    
-    // Filtro por usuario
-    if (id_usuario && String(id_usuario).trim() !== '') {
-      whereClause.id_usuario = parseInt(id_usuario);
-    }
-    
-    // Filtro por tipo de venta
-    if (tipo_venta !== undefined && String(tipo_venta).trim() !== '') {
-      whereClause.tipo_venta = parseInt(tipo_venta);
-    }
-    
-    // Filtro por rango de fechas
-    if (desde || hasta) {
-      whereClause[Op.and] = whereClause[Op.and] || [];
-      
-      if (desde && String(desde).trim() !== '') {
-        whereClause[Op.and].push(
-          literal(`"venta"."fecha_registro" >= '${String(desde).trim()}'`)
-        );
-      }
-      
-      if (hasta && String(hasta).trim() !== '') {
-        whereClause[Op.and].push(
-          literal(`"venta"."fecha_registro" <= '${String(hasta).trim()}'`)
-        );
-      }
-    }
-    
-    // Calcular totales
-    let whereTotalVentas;
-    if (estado !== undefined && String(estado).trim() !== '') {
-      whereTotalVentas = { ...whereClause };
-    } else {
-      whereTotalVentas = { ...whereClause, estado: 1 };
-    }
-    
-    const resultadoTotalVentas = await db.venta.findOne({
-      where: whereTotalVentas,
-      attributes: [
-        [Sequelize.fn('COALESCE', 
-          Sequelize.fn('SUM', 
-            Sequelize.literal('monto_total - COALESCE(descuento, 0)')
-          ), 
-          0
-        ), 'total']
-      ],
-      raw: true
-    });
-    const totalVentas = parseFloat(resultadoTotalVentas?.total) || 0;
-    
-    // Obtener ventas con detalles
-    const ventas = await db.venta.findAll({
-      where: whereClause,
-      order: [["id_venta", "DESC"]],
-      include: [
-        {
-          model: db.det_venta,
-          include: [
-            {
-              model: db.producto,
-            }
-          ]
-        },
-        {
-          model: db.usuario,
-          as: 'usuario_registro',
-          include: [{
-            model: db.empleado,
-          }]
-        },
-        {
-          model: db.usuario,
-          as: 'usuario_anulador',
-          include: [{
-            model: db.empleado,
-          }]
-        },
-        {
-          model: db.cliente
-        }
-      ]
-    });
-    
+
+    // Totales desde lista (solo ventas incluidas en totales)
+    const totalVentas = lista
+      .filter(v => v.incluida_en_totales)
+      .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+
+    // La lista del frontend ya viene filtrada
+    const ventas = lista;
+
     const printer = new PdfPrinter(fonts);
     const logo = convertImageToBase64('../assets/logo2.jpeg');
-    
+
     const filtroLines = [];
     if (desde) filtroLines.push(`Desde: ${desde}`);
     if (hasta) filtroLines.push(`Hasta: ${hasta}`);
-    if (id_cliente) {
-      const clienteData = await db.cliente.findByPk(id_cliente);
-      if (clienteData) {
-        filtroLines.push(`Cliente: ${clienteData.nombre || ''} ${clienteData.apellido_paterno || ''}`);
-      }
-    }
-    if (id_usuario) {
-      const usuarioData = await db.usuario.findOne({ 
-        where: { id_usuario },
-        include: [{ model: db.empleado }]
-      });
-      if (usuarioData) {
-        const nombreUsr = usuarioData.empleado 
-          ? `${usuarioData.empleado.nombre || ''} ${usuarioData.empleado.apellido_paterno || ''}`.trim()
-          : usuarioData.usuario;
-        filtroLines.push(`Usuario: ${nombreUsr}`);
-      }
-    }
-    if (nombreSistema) filtroLines.push(`Sistema: ${nombreSistema}`);
-    if (estado !== undefined && estado !== null) {
-      filtroLines.push(`Estado: ${estado == 1 ? 'Válido' : estado == 2 ? 'Anulado' : String(estado)}`);
-    }
-    if (tipo_venta !== undefined && tipo_venta !== null) {
-      filtroLines.push(`Tipo: ${tipo_venta == 2 ? 'Facturado' : 'Normal'}`);
-    }
+    if (estado) filtroLines.push(`Estado: ${estado}`);
+    if (tipo_venta) filtroLines.push(`Tipo venta: ${tipo_venta}`);
+    if (tipo_pago) filtroLines.push(`Tipo pago: ${tipo_pago}`);
+    if (id_cliente) filtroLines.push(`Cliente ID: ${id_cliente}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
     if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
     
     const encabezadoCols = [
@@ -1193,32 +988,23 @@ const reporteVentasDetallado = async (req, res) => {
     let counter = 1;
     ventas.forEach((venta, index) => {
       const detalles = venta.det_ventas || venta.det_venta || [];
-      
-      // Determinar usuario a mostrar según el estado
-      let nombreUsuario, labelUsuario;
-      if (venta.estado === 2) {
-        // Venta anulada - mostrar usuario anulador
-        nombreUsuario = venta.usuario_anulador?.empleado 
-          ? `${venta.usuario_anulador.empleado.nombre || ''} ${venta.usuario_anulador.empleado.ap_paterno || ''} ${venta.usuario_anulador.empleado.ap_materno || ''}`.trim()
-          : (venta.usuario_anulador?.usuario || 'Sin usuario');
-        labelUsuario = 'Anulado por';
-      } else {
-        // Venta válida - mostrar usuario registro
-        nombreUsuario = venta.usuario_registro?.empleado 
-          ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''}`.trim()
-          : (venta.usuario_registro?.usuario || 'Sin usuario');
-        labelUsuario = 'Registrado por';
-      }
-      
-      const nombreCliente = venta.cliente 
+
+      // Usuario y label ya vienen calculados del frontend
+      const usr = venta.usuario;
+      const nombreUsuario = usr?.empleado
+        ? `${usr.empleado.nombre || ''} ${usr.empleado.ap_paterno || ''} ${usr.empleado.ap_materno || ''}`.trim()
+        : (usr?.usuario || 'Sin usuario');
+      const labelUsuario = venta.label_usuario || 'Registrado por';
+
+      const nombreCliente = venta.cliente
         ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim()
         : 'Sin cliente';
       const fecha = formatFecha(venta.fecha_registro);
-      const tipoText = venta.tipo_venta === 2 ? 'Facturado' : 'Normal';
-      const tipoPagoText = venta.tipo_pago === 2 ? 'QR' : 'Efectivo';
-      const estadoText = venta.estado === 1 ? 'VÁLIDA' : venta.estado === 2 ? 'ANULADA' : String(venta.estado);
-      const estadoColor = venta.estado === 1 ? '#2196F3' : '#f44336';
-      const esAnulada = venta.estado === 2;
+      const tipoText = venta.tipo_venta || (venta.tipo_venta_valor === 2 ? 'Facturado' : 'Normal');
+      const tipoPagoText = venta.tipo_pago || (venta.tipo_pago_valor === 2 ? 'QR' : 'Efectivo');
+      const estadoText = venta.estado ? venta.estado.toUpperCase() : (venta.estado_valor === 1 ? 'VÁLIDA' : 'ANULADA');
+      const estadoColor = venta.estado_valor === 1 ? '#2196F3' : '#f44336';
+      const esAnulada = venta.estado_valor === 2;
       
       // Separador entre ventas
       if (index > 0) {
@@ -1253,7 +1039,7 @@ const reporteVentasDetallado = async (req, res) => {
             stack: [
               { text: `Fecha: ${fecha}`, fontSize: 9, alignment: 'right' },
               { text: `Tipo: ${tipoText}`, fontSize: 9, alignment: 'right' },
-              { text: `Pago: ${tipoPagoText}`, fontSize: 9, alignment: 'right', bold: true, color: venta.tipo_pago === 2 ? '#1976d2' : '#388e3c' }
+              { text: `Pago: ${tipoPagoText}`, fontSize: 9, alignment: 'right', bold: true, color: venta.tipo_pago_valor === 2 ? '#1976d2' : '#388e3c' }
             ]
           }
         ],
@@ -1343,22 +1129,18 @@ const reporteVentasDetallado = async (req, res) => {
       margin: [0, 20, 0, 20]
     });
     
-    // Calcular totales por método de pago (solo ventas válidas, excluir anuladas)
+    // Calcular totales por método de pago (solo ventas incluidas en totales)
     let totalEfectivo = 0;
     let totalQR = 0;
     let cantEfectivo = 0;
     let cantQR = 0;
     let totalVentasValidas = 0;
-    
+
     for (const v of ventas) {
-      // Excluir ventas anuladas (estado=2)
-      if (v.estado === 2) continue;
-      
+      if (!v.incluida_en_totales) continue;
       totalVentasValidas++;
-      const montoNum = parseFloat(v.monto_total) || 0;
-      const descuentoNum = parseFloat(v.descuento) || 0;
-      const totalVenta = montoNum - descuentoNum;
-      if (v.tipo_pago === 2) {
+      const totalVenta = parseFloat(v.total) || 0;
+      if (v.tipo_pago_valor === 2) {
         totalQR += totalVenta;
         cantQR++;
       } else {
@@ -1600,7 +1382,7 @@ const obtenerDatosVentasResumido = async (req, res) => {
       
       const cliente = venta.cliente ? {
         id_cliente: venta.cliente.id_cliente,
-        nombre_completo: `${venta.cliente.nombre} ${venta.cliente.ap_paterno} ${venta.cliente.ap_materno}`.trim(),
+        nombre_completo: `${venta.cliente.nombre} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim(),
         ci_nit: venta.cliente.ci_nit,
         celular: venta.cliente.celular
       } : null;
@@ -1821,7 +1603,7 @@ const obtenerDatosVentasDetallado = async (req, res) => {
             id_usuario: venta.usuario_anulador.id_usuario,
             nombre_usuario: venta.usuario_anulador.usuario,
             nombre_completo: venta.usuario_anulador.empleado 
-              ? `${venta.usuario_anulador.empleado.nombre} ${venta.usuario_anulador.empleado.ap_paterno} ${venta.usuario_anulador.empleado.ap_materno}`.trim()
+              ? `${venta.usuario_anulador.empleado.nombre} ${venta.usuario_anulador.empleado.ap_paterno || ''} ${venta.usuario_anulador.empleado.ap_materno || ''}`.trim()
               : venta.usuario_anulador.usuario
           };
         }
@@ -1833,7 +1615,9 @@ const obtenerDatosVentasDetallado = async (req, res) => {
             id_usuario: venta.usuario_registro.id_usuario,
             nombre_usuario: venta.usuario_registro.usuario,
             nombre_completo: venta.usuario_registro.empleado 
-              ? `${venta.usuario_registro.empleado.nombre} ${venta.usuario_registro.empleado.ap_paterno} ${venta.usuario_registro.empleado.ap_materno}`.trim()
+              ? `${venta.usuario_registro.empleado.nombre} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''
+
+              }`.trim()
               : venta.usuario_registro.usuario
           };
         }
@@ -1842,7 +1626,7 @@ const obtenerDatosVentasDetallado = async (req, res) => {
       
       const cliente = venta.cliente ? {
         id_cliente: venta.cliente.id_cliente,
-        nombre_completo: `${venta.cliente.nombre} ${venta.cliente.ap_paterno} ${venta.cliente.ap_materno}`.trim(),
+        nombre_completo: `${venta.cliente.nombre} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim(),
         ci_nit: venta.cliente.ci_nit,
         celular: venta.cliente.celular
       } : null;

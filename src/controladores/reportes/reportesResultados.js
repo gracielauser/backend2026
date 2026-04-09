@@ -39,59 +39,52 @@ const reporteResultados = async (req, res) => {
     const {
       desde,
       hasta,
-      tasa_impuesto = 13, // Tasa de impuesto por defecto 13% (Bolivia)
+      tasa_impuesto = 13,
       nombreSistema = 'Auto Accesorios Pinedo'
-    } = req.body || {};
+    } = req.query || {};
     
-    console.log('Reporte de Estado de Resultados - parámetros:', req.body);
+    console.log('Reporte de Estado de Resultados - parámetros:', req.query);
     
-    // Construir filtros para ventas
-    const whereVenta = {
-      estado: 1 // Solo ventas válidas
-    };
+    // Validar formato YYYY-MM-DD para evitar inyección SQL en el literal
+    const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const desdeVal = desde && FECHA_RE.test(String(desde).trim()) ? String(desde).trim() : null;
+    const hastaVal = hasta && FECHA_RE.test(String(hasta).trim()) ? String(hasta).trim() : null;
     
-    // Aplicar filtro de fechas si se proporcionan
-    if (desde || hasta) {
-      whereVenta.fecha_registro = {};
-      if (desde && String(desde).trim() !== '') {
-        whereVenta.fecha_registro[Op.gte] = String(desde).trim();
-      }
-      if (hasta && String(hasta).trim() !== '') {
-        whereVenta.fecha_registro[Op.lte] = String(hasta).trim();
-      }
+    // Filtro de ventas: comparar solo la parte de fecha con SUBSTRING
+    const whereVenta = { estado: 1 };
+    if (desdeVal || hastaVal) {
+      whereVenta[Op.and] = [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ];
     }
     
-    // Construir filtros para gastos
-    const whereGasto = {
-      estado: 1 // Solo gastos válidos
-    };
+    // Filtro de gastos: comparar solo la parte de fecha con SUBSTRING
+    const whereGasto = { estado: 1 };
+    if (desdeVal || hastaVal) {
+      whereGasto[Op.and] = [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("gasto"."fecha" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("gasto"."fecha" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ];
+    }
+
+    // Filtro de compras: comparar solo la parte de fecha con SUBSTRING
+    const whereCompra = { estado: 1 };
+    if (desdeVal || hastaVal) {
+      whereCompra[Op.and] = [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("compra"."fecha_registro" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("compra"."fecha_registro" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ];
+    }
     
-    // Aplicar filtro de fechas si se proporcionan
-    if (desde || hasta) {
-      whereGasto.fecha = {};
-      if (desde && String(desde).trim() !== '') {
-        whereGasto.fecha[Op.gte] = String(desde).trim();
-      }
-      if (hasta && String(hasta).trim() !== '') {
-        whereGasto.fecha[Op.lte] = String(hasta).trim();
-      }
-    };
+    // Obtener ventas
+    const ventas = await db.venta.findAll({ where: whereVenta });
     
-    // Obtener ventas con detalles
-    const ventas = await db.venta.findAll({
-      where: whereVenta,
-      include: [
-        {
-          model: db.det_venta,
-          required: false
-        }
-      ]
-    });
+    // Obtener compras (costo de ventas)
+    const compras = await db.compra.findAll({ where: whereCompra });
     
     // Obtener gastos
-    const gastos = await db.gasto.findAll({
-      where: whereGasto
-    });
+    const gastos = await db.gasto.findAll({ where: whereGasto });
     
     // ============= CÁLCULOS DEL ESTADO DE RESULTADOS =============
     
@@ -103,16 +96,10 @@ const reporteResultados = async (req, res) => {
       ingresos += (montoTotal - descuento);
     });
     
-    // 2. COSTO DE VENTAS (COGS)
+    // 2. COSTO DE VENTAS (total compras estado=1 en el rango)
     let costoVentas = 0;
-    ventas.forEach(venta => {
-      if (venta.det_ventas && venta.det_ventas.length > 0) {
-        venta.det_ventas.forEach(detalle => {
-          const cantidad = parseFloat(detalle.cantidad) || 0;
-          const precioCompra = parseFloat(detalle.precio_compra) || 0;
-          costoVentas += (cantidad * precioCompra);
-        });
-      }
+    compras.forEach(compra => {
+      costoVentas += parseFloat(compra.monto_total) || 0;
     });
     
     // 3. GANANCIA BRUTA
@@ -229,7 +216,7 @@ const reporteResultados = async (req, res) => {
                 {}
               ],
               [
-                { text: '   Costo de productos vendidos', style: 'itemText' },
+                { text: `   Total compras (${compras.length} compras)`, style: 'itemText' },
                 { text: `Bs. ${formatNumber(costoVentas)}`, style: 'amountNegative', alignment: 'right' }
               ],
               
@@ -527,37 +514,37 @@ const obtenerDatosResultados = async (req, res) => {
     console.log('Obtener datos de Estado de Resultados - parámetros:', req.query);
     console.log('Valores recibidos - desde:', desde, 'hasta:', hasta);
     
-    // Construir filtros para ventas
-    const whereVenta = {
-      estado: 1 // Solo ventas válidas
-    };
+    // Validar formato YYYY-MM-DD para evitar inyección SQL en el literal
+    const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const desdeVal = desde && FECHA_RE.test(String(desde).trim()) ? String(desde).trim() : null;
+    const hastaVal = hasta && FECHA_RE.test(String(hasta).trim()) ? String(hasta).trim() : null;
     
-    // Aplicar filtro de fechas si se proporcionan
-    if (desde || hasta) {
-      whereVenta.fecha_registro = {};
-      if (desde && String(desde).trim() !== '') {
-        whereVenta.fecha_registro[Op.gte] = String(desde).trim();
-      }
-      if (hasta && String(hasta).trim() !== '') {
-        whereVenta.fecha_registro[Op.lte] = String(hasta).trim();
-      }
+    // Filtro de ventas: comparar solo la parte de fecha con SUBSTRING
+    const whereVenta = { estado: 1 };
+    if (desdeVal || hastaVal) {
+      whereVenta[Op.and] = [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ];
     }
     
-    // Construir filtros para gastos
-    const whereGasto = {
-      estado: 1 // Solo gastos válidos
-    };
-    
-    // Aplicar filtro de fechas si se proporcionan
-    if (desde || hasta) {
-      whereGasto.fecha = {};
-      if (desde && String(desde).trim() !== '') {
-        whereGasto.fecha[Op.gte] = String(desde).trim();
-      }
-      if (hasta && String(hasta).trim() !== '') {
-        whereGasto.fecha[Op.lte] = String(hasta).trim();
-      }
-    };
+    // Filtro de gastos: comparar solo la parte de fecha con SUBSTRING
+    const whereGasto = { estado: 1 };
+    if (desdeVal || hastaVal) {
+      whereGasto[Op.and] = [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("gasto"."fecha" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("gasto"."fecha" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ];
+    }
+
+    // Filtro de compras: comparar solo la parte de fecha con SUBSTRING
+    const whereCompra = { estado: 1 };
+    if (desdeVal || hastaVal) {
+      whereCompra[Op.and] = [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("compra"."fecha_registro" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("compra"."fecha_registro" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ];
+    }
     
     // Obtener ventas con detalles y productos
     const ventas = await db.venta.findAll({
@@ -591,6 +578,9 @@ const obtenerDatosResultados = async (req, res) => {
       ]
     });
     
+    // Obtener compras (costo de ventas)
+    const compras = await db.compra.findAll({ where: whereCompra });
+
     // Obtener gastos con información del usuario
     const gastos = await db.gasto.findAll({
       where: whereGasto,
@@ -642,40 +632,19 @@ const obtenerDatosResultados = async (req, res) => {
       });
     });
     
-    // 2. COSTO DE VENTAS
+    // 2. COSTO DE VENTAS (total compras estado=1 en el rango)
     let costoVentas = 0;
     let detallesCostos = [];
-    
-    ventas.forEach(venta => {
-      if (venta.det_ventas && venta.det_ventas.length > 0) {
-        venta.det_ventas.forEach(detalle => {
-          const cantidad = parseFloat(detalle.cantidad) || 0;
-          const precioCompra = parseFloat(detalle.precio_compra) || 0;
-          const precioVenta = parseFloat(detalle.precio_unitario) || 0;
-          const costoItem = cantidad * precioCompra;
-          const ingresoItem = cantidad * precioVenta;
-          const margenItem = ingresoItem - costoItem;
-          
-          costoVentas += costoItem;
-          
-          detallesCostos.push({
-            id_venta: venta.id_venta,
-            nro_venta: venta.nro_venta,
-            producto: detalle.producto ? {
-              id_producto: detalle.producto.id_producto,
-              codigo: detalle.producto.codigo,
-              nombre: detalle.producto.nombre
-            } : null,
-            cantidad: cantidad,
-            precio_compra: precioCompra,
-            precio_venta: precioVenta,
-            costo_total: costoItem,
-            ingreso_total: ingresoItem,
-            margen: margenItem,
-            margen_porcentaje: precioCompra > 0 ? ((margenItem / costoItem) * 100) : 0
-          });
-        });
-      }
+
+    compras.forEach(compra => {
+      const montoCompra = parseFloat(compra.monto_total) || 0;
+      costoVentas += montoCompra;
+      detallesCostos.push({
+        id_compra: compra.id_compra,
+        nro_compra: compra.nro_compra,
+        fecha_registro: compra.fecha_registro,
+        monto_total: montoCompra
+      });
     });
     
     // 3. GANANCIA BRUTA
@@ -744,7 +713,7 @@ const obtenerDatosResultados = async (req, res) => {
         },
         costo_ventas: {
           total: parseFloat(costoVentas.toFixed(2)),
-          cantidad_items: detallesCostos.length,
+          cantidad_compras: compras.length,
           detalle: detallesCostos
         },
         ganancia_bruta: {

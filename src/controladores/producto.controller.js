@@ -61,7 +61,7 @@ const movimientos = async (req, res) => {
       attributes: [
         'id_producto',
         [Sequelize.literal(`(
-          COALESCE(SUM(det_venta.cantidad), 0) + 
+          COALESCE(SUM(CASE WHEN "ventum"."estado" = 1 THEN "det_venta"."cantidad" ELSE 0 END), 0) + 
           COALESCE((
             SELECT SUM(inv.cantidad)
             FROM inventario inv

@@ -105,7 +105,7 @@ const reporteComprasResumido = async (req, res) => {
         { text: proveedor, fontSize: 8 },
         { text: usuario, fontSize: 8 },
         { text: cantidadProductos.toString(), fontSize: 8, alignment: 'center' },
-        { text: `$${formatMoney(compra.monto_total)}`, fontSize: 8, alignment: 'right' },
+        { text: `Bs${formatMoney(compra.monto_total)}`, fontSize: 8, alignment: 'right' },
         { text: compra.estado === 1 ? "Activa" : "Anulada", fontSize: 8, alignment: 'center' }
       ]);
     });
@@ -159,7 +159,7 @@ const reporteComprasResumido = async (req, res) => {
           ],
           [
             { text: 'Monto Total General:', bold: true },
-            { text: `$${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
+            { text: `Bs${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
           ],
           [
             { text: 'Total Productos Comprados:', bold: true },
@@ -353,7 +353,7 @@ const reporteComprasDetallado = async (req, res) => {
           ],
           [
             { text: 'Monto Total (Activas):', bold: true },
-            { text: `$${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
+            { text: `Bs${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
           ],
           [
             { text: 'Total Productos Comprados:', bold: true },
@@ -439,8 +439,8 @@ const reporteComprasDetallado = async (req, res) => {
           { text: det.producto ? safeText(det.producto.nombre) : 'N/A', fontSize: 9, color: colorDetalle },
           { text: det.producto ? safeText(det.producto.codigo) : 'N/A', fontSize: 9, color: colorDetalle },
           { text: det.cantidad || 0, fontSize: 9, alignment: 'center', color: colorDetalle },
-          { text: `$${formatMoney(det.precio_unitario)}`, fontSize: 9, alignment: 'right', color: colorDetalle },
-          { text: `$${formatMoney(det.sub_total)}`, fontSize: 9, alignment: 'right', color: colorDetalle, bold: true }
+          { text: `Bs${formatMoney(det.precio_unitario)}`, fontSize: 9, alignment: 'right', color: colorDetalle },
+          { text: `Bs${formatMoney(det.sub_total)}`, fontSize: 9, alignment: 'right', color: colorDetalle, bold: true }
         ]);
       });
 
@@ -450,7 +450,7 @@ const reporteComprasDetallado = async (req, res) => {
         {},
         {},
         { 
-          text: `TOTAL: $${formatMoney(compra.monto_total)}${esAnulada ? ' (ANULADA)' : ''}`, 
+          text: `TOTAL: Bs${formatMoney(compra.monto_total)}${esAnulada ? ' (ANULADA)' : ''}`, 
           bold: true, 
           fontSize: 10, 
           alignment: 'right', 
@@ -513,7 +513,7 @@ const reporteComprasDetallado = async (req, res) => {
           ],
           [
             { text: 'Monto Total (Solo Activas):', bold: true },
-            { text: `$${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
+            { text: `Bs${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
           ],
           [
             { text: 'Total Productos Comprados (Activas):', bold: true },

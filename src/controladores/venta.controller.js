@@ -60,7 +60,7 @@ const agregar = async (req, res) => {
         if(venta.tipo_venta==2){
             await db.factura.create({
                 id_venta: venta.id_venta,
-                impuesto: ((venta.monto_total-venta.descuento)*0.03).toFixed(3),
+                impuesto: ((venta.monto_total-venta.descuento)*0.16).toFixed(3),
                 total: venta.monto_total-venta.descuento
             })
         }
