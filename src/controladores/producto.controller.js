@@ -1,5 +1,5 @@
 const { db } = require("../config/dataBase");
-const { Sequelize } = require("sequelize");
+const { Sequelize, Op } = require("sequelize");
 
 const listar = async (req, res)=>{
     try {
@@ -57,6 +57,69 @@ const modificar=async(req,res)=>{
 const movimientos = async (req, res) => {
     try {
         const { id_producto } = req.params;
+        const { nombre_codigo, id_categoria, id_marca, desde, hasta } = req.body || {};
+        console.log('body de movimientosssss:', req.body);
+        
+        // Construir filtros para producto
+        const whereProducto = {};
+        
+        if (id_categoria && String(id_categoria).trim() !== '') {
+          whereProducto.id_categoria = parseInt(id_categoria);
+        }
+        
+        if (id_marca && String(id_marca).trim() !== '') {
+          whereProducto.id_marca = parseInt(id_marca);
+        }
+        
+        if (nombre_codigo && String(nombre_codigo).trim() !== '') {
+          const busqueda = String(nombre_codigo).trim();
+          whereProducto[Op.or] = [
+            { nombre: { [Op.iLike]: `%${busqueda}%` } },
+            { codigo: { [Op.iLike]: `%${busqueda}%` } }
+          ];
+        }
+        
+        // Construir filtros para venta (fecha_registro)
+        const whereVenta = { estado: 1 };
+        
+        if (desde && String(desde).trim() !== '') {
+          whereVenta.fecha_registro = whereVenta.fecha_registro || {};
+          whereVenta.fecha_registro[Op.gte] = String(desde).trim();
+        }
+        
+        if (hasta && String(hasta).trim() !== '') {
+          whereVenta.fecha_registro = whereVenta.fecha_registro || {};
+          whereVenta.fecha_registro[Op.lte] = String(hasta).trim() + ' 23:59:59';
+        }
+        
+        // Construir condiciones SQL para subconsultas
+        let fechaCondicionVenta = '';
+        if (desde && hasta) {
+          fechaCondicionVenta = `AND v.fecha_registro >= '${desde}' AND v.fecha_registro <= '${hasta} 23:59:59'`;
+        } else if (desde) {
+          fechaCondicionVenta = `AND v.fecha_registro >= '${desde}'`;
+        } else if (hasta) {
+          fechaCondicionVenta = `AND v.fecha_registro <= '${hasta} 23:59:59'`;
+        }
+        
+        let fechaCondicionCompra = '';
+        if (desde && hasta) {
+          fechaCondicionCompra = `AND c.fecha_registro >= '${desde}' AND c.fecha_registro <= '${hasta} 23:59:59'`;
+        } else if (desde) {
+          fechaCondicionCompra = `AND c.fecha_registro >= '${desde}'`;
+        } else if (hasta) {
+          fechaCondicionCompra = `AND c.fecha_registro <= '${hasta} 23:59:59'`;
+        }
+        
+        let fechaCondicionInventario = '';
+        if (desde && hasta) {
+          fechaCondicionInventario = `AND inv.fecha_registro >= '${desde}' AND inv.fecha_registro <= '${hasta} 23:59:59'`;
+        } else if (desde) {
+          fechaCondicionInventario = `AND inv.fecha_registro >= '${desde}'`;
+        } else if (hasta) {
+          fechaCondicionInventario = `AND inv.fecha_registro <= '${hasta} 23:59:59'`;
+        }
+        
         const resultados = await db.det_venta.findAll({
       attributes: [
         'id_producto',
@@ -68,6 +131,7 @@ const movimientos = async (req, res) => {
             WHERE inv.id_producto = det_venta.id_producto
             AND inv.estado = 1
             AND inv.tipo_movimiento = 1
+            ${fechaCondicionInventario}
           ), 0)
         )`), 'salidas'],
         [Sequelize.literal(`(
@@ -77,6 +141,7 @@ const movimientos = async (req, res) => {
             INNER JOIN compra c ON dc.id_compra = c.id_compra
             WHERE dc.id_producto = det_venta.id_producto
             AND c.estado = 1
+            ${fechaCondicionCompra}
           ), 0) +
           COALESCE((
             SELECT SUM(inv.cantidad)
@@ -84,6 +149,7 @@ const movimientos = async (req, res) => {
             WHERE inv.id_producto = det_venta.id_producto
             AND inv.estado = 1
             AND inv.tipo_movimiento = 2
+            ${fechaCondicionInventario}
           ), 0)
         )`), 'entradas'],
       [Sequelize.fn('SUM',
@@ -94,7 +160,7 @@ const movimientos = async (req, res) => {
         (("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
           * ((("ventum"."monto_total" - "ventum"."descuento")::numeric / "ventum"."monto_total"))
         )
-        - ((("ventum"."monto_total" - "ventum"."descuento") * 0.03) * ("det_venta"."sub_total" / "ventum"."monto_total"))
+        - ((("ventum"."monto_total" - "ventum"."descuento") * 0.13) * ("det_venta"."sub_total" / "ventum"."monto_total"))
       )
       ELSE (
         ("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
@@ -108,13 +174,13 @@ const movimientos = async (req, res) => {
         {
           model: db.venta,
           attributes: [],
-          where: { estado: 1 },
+          where: whereVenta,
           required: true
         },
         {
           model: db.producto,
           attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock','estado'],
-        //   where: { estado: 1 }, ya no por que vas ventas no importa si no esta activo el prodcuto el veneficio ya me dio
+          where: whereProducto,
           required: true,
           include: [
             {

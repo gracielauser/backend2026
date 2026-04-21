@@ -986,14 +986,13 @@ const reporteVentasDetallado = async (req, res) => {
     const content = [];
     
     let counter = 1;
-    ventas.forEach((venta, index) => {
-      const detalles = venta.det_ventas || venta.det_venta || [];
+    for (let index = 0; index < ventas.length; index++) {
+      const venta = ventas[index];
+      const detalles = await db.det_venta.findAll({ where: { id_venta: venta.id_venta }, include: [{ model: db.producto }] }) || [];
 
       // Usuario y label ya vienen calculados del frontend
       const usr = venta.usuario;
-      const nombreUsuario = usr?.empleado
-        ? `${usr.empleado.nombre || ''} ${usr.empleado.ap_paterno || ''} ${usr.empleado.ap_materno || ''}`.trim()
-        : (usr?.usuario || 'Sin usuario');
+      const nombreUsuario = usr?.nombre_usuario || usr?.usuario || 'Sin usuario';
       const labelUsuario = venta.label_usuario || 'Registrado por';
 
       const nombreCliente = venta.cliente
@@ -1031,7 +1030,8 @@ const reporteVentasDetallado = async (req, res) => {
             stack: [
               { text: `Cliente: ${nombreCliente}`, fontSize: 9, bold: true },
               { text: `CI/NIT: ${venta.cliente?.ci_nit || 'N/A'}`, fontSize: 9 },
-              { text: `${labelUsuario}: ${nombreUsuario}`, fontSize: 9, color: esAnulada ? '#f44336' : '#333333', bold: esAnulada }
+              { text: `${labelUsuario}: ${nombreUsuario}`, fontSize: 9, color: esAnulada ? '#f44336' : '#333333', bold: esAnulada },
+              ...(venta.descripcion ? [{ text: `Descripción: ${venta.descripcion}`, fontSize: 8, color: '#666666', italics: true, margin: [0, 3, 0, 0] }] : [])
             ]
           },
           {
@@ -1062,7 +1062,6 @@ const reporteVentasDetallado = async (req, res) => {
           { text: 'Código', bold: true, fontSize: 9, fillColor: '#2196F3', color: 'white' },
           { text: 'Cant.', bold: true, fontSize: 9, alignment: 'center', fillColor: '#2196F3', color: 'white' },
           { text: 'P. Unit.', bold: true, fontSize: 9, alignment: 'right', fillColor: '#2196F3', color: 'white' },
-          { text: 'Desc.', bold: true, fontSize: 9, alignment: 'right', fillColor: '#2196F3', color: 'white' },
           { text: 'Subtotal', bold: true, fontSize: 9, alignment: 'right', fillColor: '#2196F3', color: 'white' }
         ]
       ];
@@ -1080,7 +1079,6 @@ const reporteVentasDetallado = async (req, res) => {
           { text: productoCodigo, fontSize: 9, color: colorDetalle },
           { text: cantidad.toString(), fontSize: 9, alignment: 'center', color: colorDetalle },
           { text: formatNumber(precioUnit), fontSize: 9, alignment: 'right', color: colorDetalle },
-          { text: formatNumber((precioUnit*cantidad-subtotal)>0 ? (precioUnit*cantidad-subtotal) : 0), fontSize: 9, alignment: 'right', color: colorDetalle },
           { text: formatNumber(subtotal), fontSize: 9, alignment: 'right', color: colorDetalle, bold: true }
         ]);
       });
@@ -1090,9 +1088,19 @@ const reporteVentasDetallado = async (req, res) => {
       const descuento = parseFloat(venta.descuento) || 0;
       const total = monto - descuento;
       
+      // Fila de descuento
+      if (descuento > 0) {
+        productosBody.push([
+          { text: '', colSpan: 2, border: [false, false, false, false] },
+          {},
+          {},
+          { text: 'Descuento:', fontSize: 9, alignment: 'right', color: '#666666' },
+          { text: formatNumber(descuento), fontSize: 9, alignment: 'right', color: '#666666' }
+        ]);
+      }
+      
       productosBody.push([
-        { text: '', colSpan: 3, border: [false, false, false, false] },
-        {},
+        { text: '', colSpan: 2, border: [false, false, false, false] },
         {},
         {},
         { text: 'TOTAL:', bold: true, fontSize: 10, alignment: 'right', fillColor: esAnulada ? '#ffebee' : '#e3f2fd', color: esAnulada ? '#999999' : '#1565C0', border: [true, true, false, true] },
@@ -1102,7 +1110,7 @@ const reporteVentasDetallado = async (req, res) => {
       content.push({
         table: {
           headerRows: 1,
-          widths: ['*', 70, 40, 50, 50, 60],
+          widths: ['*', 70, 40, 60, 70],
           body: productosBody
         },
         layout: {
@@ -1118,7 +1126,7 @@ const reporteVentasDetallado = async (req, res) => {
       });
       
       counter++;
-    });
+    }
     
     // Resumen general al final
     content.push({ text: '\n', pageBreak: 'before' });
@@ -1294,6 +1302,9 @@ const obtenerDatosVentasResumido = async (req, res) => {
       order: [["id_venta", "DESC"]],
       include: [
         {
+          model: db.det_venta,
+        },
+        {
           model: db.usuario,
           attributes: ['id_usuario', 'usuario'],
           as: 'usuario_registro',
@@ -1314,7 +1325,7 @@ const obtenerDatosVentasResumido = async (req, res) => {
         {
           model: db.cliente,
           attributes: ['id_cliente', 'nombre', 'ap_paterno', 'ap_materno', 'ci_nit', 'celular']
-        }
+        },
       ]
     });
     

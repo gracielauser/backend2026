@@ -508,10 +508,47 @@ const reporteGananciasProducto = async (req, res) => {
   try {
     const {
       usuario = '',
-      nombreSistema = 'Auto Accesorios Pinedo'
+      nombreSistema = 'Auto Accesorios Pinedo',
+      nombre_codigo,
+      id_categoria,
+      id_marca,
+      desde,
+      hasta
     } = req.body || {};
 
     console.log('Reporte de ganancias por producto - parámetros:', req.body);
+
+    // Construir filtros para producto
+    const whereProducto = {};
+    
+    if (id_categoria && String(id_categoria).trim() !== '') {
+      whereProducto.id_categoria = parseInt(id_categoria);
+    }
+    
+    if (id_marca && String(id_marca).trim() !== '') {
+      whereProducto.id_marca = parseInt(id_marca);
+    }
+    
+    if (nombre_codigo && String(nombre_codigo).trim() !== '') {
+      const busqueda = String(nombre_codigo).trim();
+      whereProducto[Op.or] = [
+        { nombre: { [Op.iLike]: `%${busqueda}%` } },
+        { codigo: { [Op.iLike]: `%${busqueda}%` } }
+      ];
+    }
+    
+    // Construir filtros para venta (fecha_registro)
+    const whereVenta = { estado: 1 };
+    
+    if (desde && String(desde).trim() !== '') {
+      whereVenta.fecha_registro = whereVenta.fecha_registro || {};
+      whereVenta.fecha_registro[Op.gte] = String(desde).trim();
+    }
+    
+    if (hasta && String(hasta).trim() !== '') {
+      whereVenta.fecha_registro = whereVenta.fecha_registro || {};
+      whereVenta.fecha_registro[Op.lte] = String(hasta).trim() + ' 23:59:59';
+    }
 
     // Obtener detalles de venta agrupados por producto con ganancias calculadas
     const resultados = await db.det_venta.findAll({
@@ -527,7 +564,7 @@ const reporteGananciasProducto = async (req, res) => {
         (("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
           * ((("ventum"."monto_total" - "ventum"."descuento")::numeric / "ventum"."monto_total"))
         )
-        - ((("ventum"."monto_total" - "ventum"."descuento") * 0.03) * ("det_venta"."sub_total" / "ventum"."monto_total"))
+        - ((("ventum"."monto_total" - "ventum"."descuento") * 0.13) * ("det_venta"."sub_total" / "ventum"."monto_total"))
       )
       ELSE (
         ("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
@@ -541,13 +578,13 @@ const reporteGananciasProducto = async (req, res) => {
         {
           model: db.venta,
           attributes: [],
-          where: { estado: 1 },
+          where: whereVenta,
           required: true
         },
         {
           model: db.producto,
           attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock','estado'],
-        //   where: { estado: 1 }, ya no por que vas ventas no importa si no esta activo el prodcuto el veneficio ya me dio
+          where: whereProducto,
           required: true,
           include: [
             {
@@ -594,6 +631,26 @@ const reporteGananciasProducto = async (req, res) => {
 
     const printer = new PdfPrinter(fonts);
     const logo = await convertImageToBase64("../assets/logo2.jpeg");
+
+    // Construir líneas de filtros para la cabecera
+    const filtroLines = [];
+    
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    
+    if (id_categoria) {
+      const cat = await db.categoria.findByPk(id_categoria, { attributes: ['nombre'] });
+      if (cat) filtroLines.push(`Categoría: ${cat.nombre}`);
+    }
+    
+    if (id_marca) {
+      const marc = await db.marca.findByPk(id_marca, { attributes: ['nombre'] });
+      if (marc) filtroLines.push(`Marca: ${marc.nombre}`);
+    }
+    
+    if (nombre_codigo) filtroLines.push(`Búsqueda: ${nombre_codigo}`);
+    
+    if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
 
     // Preparar tabla
     const tableBody = [];
@@ -671,7 +728,7 @@ const reporteGananciasProducto = async (req, res) => {
           {
             stack: [
               { text: 'Reporte de Ganancias por Producto', fontSize: 16, bold: true },
-              { text: 'Productos activos con ventas', fontSize: 8 }
+              ...filtroLines.map(l => ({ text: l, fontSize: 8 }))
             ],
             margin: [10, 0, 0, 0],
             width: '*'
