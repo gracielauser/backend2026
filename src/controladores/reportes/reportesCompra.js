@@ -7,7 +7,8 @@ const { Op, Sequelize, literal } = require("sequelize");
 const reporteComprasResumido = async (req, res) => {
   try {
     const { fecha_inicio, fecha_fin, id_proveedor } = req.body;
-
+    console.log('datos de llegada reporte resumido de compras: ', req.body);
+    
     // Construir filtros
     let whereClause = {};
     
@@ -252,6 +253,7 @@ const reporteComprasResumido = async (req, res) => {
 const reporteComprasDetallado = async (req, res) => {
   try {
     const { fecha_inicio, fecha_fin, id_proveedor } = req.body;
+console.log('datos de llegada reporte compras detallado; ',req.body);
 
     // Construir filtros
     let whereClause = {};
