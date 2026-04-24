@@ -42,6 +42,7 @@ app.use('/api/reporte-venta', require('./src/rutas/reportes/reporteVenta.route')
 app.use('/api/reporte-producto', require('./src/rutas/reportes/reporteProducto.route'))
 app.use('/api/reporte-compra', require('./src/rutas/reportes/reporteCompra.route'))
 app.use('/api/reporte-tendencia', require('./src/rutas/reportes/reporteTendencia.route'))
+app.use('/api/reporte-cliente', require('./src/rutas/reportes/reporteCliente.route'))
 //  Esto permite acceder a las imágenes por URL:
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Middleware de manejo de errores

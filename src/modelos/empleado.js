@@ -23,6 +23,10 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.STRING(40),
       allowNull: true
     },
+    ci: {
+      type: DataTypes.STRING(15),
+      allowNull: true
+    },
     celular: {
       type: DataTypes.INTEGER,
       allowNull: true

@@ -10,7 +10,7 @@ const { reporteResultados, obtenerDatosResultados } = require('../controladores/
 router.post('/facturas', reporteFacturas);
 
 // Obtener datos de clientes (vista previa JSON)
-router.get('/clientes/datos', obtenerDatosClientes);
+router.post('/clientes/datos', obtenerDatosClientes);
 
 // Reporte de clientes con beneficio por ventas (PDF)
 router.post('/clientes', reporteClientes);

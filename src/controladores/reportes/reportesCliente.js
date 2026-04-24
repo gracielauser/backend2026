@@ -3,6 +3,7 @@ const PdfPrinter = require("pdfmake");
 const fonts = require("../../utils/pdfFonts");
 const convertImageToBase64 = require("../../utils/imageToBase64");
 const { Op, Sequelize } = require("sequelize");
+const ExcelJS = require("exceljs");
 
 // Helper para formatear números
 const formatNumber = (num) => {
@@ -221,9 +222,9 @@ const obtenerDatosClientes = async (req, res) => {
       id_cliente,
       desde,
       hasta
-    } = req.query || {};
+    } = req.body || {};
     
-    console.log('Obtener datos de clientes - parámetros:', req.query);
+    console.log('Obtener datos de clientes - parámetros:', req.body);
     
     // Construir filtros para clientes
     const whereCliente = {};
@@ -233,20 +234,21 @@ const obtenerDatosClientes = async (req, res) => {
       whereCliente.id_cliente = parseInt(id_cliente);
     }
     
-    // Filtro por rango de fechas en cliente.fecha_registro
-    if (desde || hasta) {
-      if (desde && String(desde).trim() !== '') {
-        whereCliente.fecha_registro = whereCliente.fecha_registro || {};
-        whereCliente.fecha_registro[Op.gte] = String(desde).trim();
-      }
-      
-      if (hasta && String(hasta).trim() !== '') {
-        whereCliente.fecha_registro = whereCliente.fecha_registro || {};
-        whereCliente.fecha_registro[Op.lte] = String(hasta).trim() + ' 23:59:59';
-      }
-    }
-    
     console.log('Where clause clientes:', whereCliente);
+    
+    // Construir filtros para ventas (fecha_registro es STRING: 'YYYY-MM-DD hh:mm:ss')
+    const desdeVal = desde && String(desde).trim() !== '' ? String(desde).trim() : null;
+    const hastaVal = hasta && String(hasta).trim() !== '' ? String(hasta).trim() : null;
+    
+    const whereVenta = {
+      estado: { [Op.ne]: 2 }, // Excluir ventas anuladas
+      [Op.and]: [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ]
+    };
+    
+    console.log('Where clause ventas:', whereVenta);
     
     // Obtener clientes con sus ventas válidas
     const clientesRaw = await db.cliente.findAll({
@@ -256,11 +258,7 @@ const obtenerDatosClientes = async (req, res) => {
         {
           model: db.venta,
           required: false,
-          where: {
-            estado: {
-              [Op.ne]: 2 // Excluir ventas anuladas
-            }
-          }
+          where: whereVenta
         }
       ]
     });
@@ -356,4 +354,240 @@ const obtenerDatosClientes = async (req, res) => {
   }
 };
 
-module.exports = { reporteClientes, obtenerDatosClientes };
+// Generar reporte de clientes en Excel
+const reporteClientesXlsx = async (req, res) => {
+  try {
+    const {
+      id_cliente,
+      desde,
+      hasta,
+      usuario = '',
+      nombreSistema = 'Auto Accesorios Pinedo'
+    } = req.body || {};
+
+    console.log('Generar Excel clientes - parámetros:', req.body);
+
+    // Construir filtros para clientes
+    const whereCliente = {};
+    if (id_cliente && String(id_cliente).trim() !== '') {
+      whereCliente.id_cliente = parseInt(id_cliente);
+    }
+
+    // Construir filtros para ventas (fecha_registro es STRING: 'YYYY-MM-DD hh:mm:ss')
+    const desdeVal = desde && String(desde).trim() !== '' ? String(desde).trim() : null;
+    const hastaVal = hasta && String(hasta).trim() !== '' ? String(hasta).trim() : null;
+
+    const whereVenta = {
+      estado: { [Op.ne]: 2 }, // Excluir ventas anuladas
+      [Op.and]: [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST("venta"."fecha_registro" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ]
+    };
+
+    // Obtener clientes con sus ventas válidas
+    const clientesRaw = await db.cliente.findAll({
+      where: whereCliente,
+      order: [["id_cliente", "ASC"]],
+      include: [
+        {
+          model: db.venta,
+          required: false,
+          where: whereVenta
+        }
+      ]
+    });
+
+    if (!clientesRaw || clientesRaw.length === 0) {
+      return res.status(404).send('No se encontraron clientes con los filtros especificados');
+    }
+
+    // Convertir a objetos planos
+    const clientes = clientesRaw.map(c => c.get ? c.get({ plain: true }) : c);
+
+    // Formatear fecha_registro: 'YYYY-MM-DD hh:mm:ss' → '12 Abril 2026, hh:mm:ss'
+    const formatFechaRegistro = (fecha) => {
+      if (!fecha) return '';
+      const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+      const partes = String(fecha).split(' ');
+      const [year, month, day] = (partes[0] || '').split('-');
+      const timePart = partes[1] || '';
+      const mesNombre = meses[parseInt(month, 10) - 1] || '';
+      return `${parseInt(day, 10)} ${mesNombre} ${year}${timePart ? ', ' + timePart : ''}`;
+    };
+
+    let totalBeneficio = 0;
+    let totalCompras = 0;
+    let clientesConCompras = 0;
+
+    // Procesar datos de clientes
+    const clientesProcesados = clientes.map((cliente, index) => {
+      const nombreCompleto = `${cliente.nombre || ''} ${cliente.ap_paterno || ''} ${cliente.ap_materno || ''}`.trim();
+      const ciNit = cliente.ci_nit || '';
+      const celular = cliente.celular || '';
+      const email = cliente.email || '';
+      const fechaReg = formatFechaRegistro(cliente.fecha_registro);
+
+      // Calcular beneficio del cliente (solo ventas válidas, estado != 2)
+      let beneficioCliente = 0;
+      let cantidadCompras = 0;
+
+      if (cliente.venta && cliente.venta.length > 0) {
+        cliente.venta.forEach(venta => {
+          const monto = parseFloat(venta.monto_total) || 0;
+          const descuento = parseFloat(venta.descuento) || 0;
+          beneficioCliente += (monto - descuento);
+          cantidadCompras++;
+        });
+      }
+
+      // Acumular totales
+      totalBeneficio += beneficioCliente;
+      totalCompras += cantidadCompras;
+      if (cantidadCompras > 0) {
+        clientesConCompras++;
+      }
+
+      return {
+        numero: index + 1,
+        nombre_completo: nombreCompleto,
+        ci_nit: ciNit,
+        celular: celular,
+        email: email,
+        fecha_registro: fechaReg,
+        cantidad_compras: cantidadCompras,
+        beneficio_total: beneficioCliente
+      };
+    });
+
+    // Crear workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = nombreSistema || 'Auto Accesorios Pinedo';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet('Clientes');
+
+    // Líneas de filtros
+    const filtroLines = [];
+    if (id_cliente) {
+      const clienteFiltrado = clientes.find(c => c.id_cliente == id_cliente);
+      if (clienteFiltrado) {
+        const nombreFiltrado = `${clienteFiltrado.nombre || ''} ${clienteFiltrado.ap_paterno || ''} ${clienteFiltrado.ap_materno || ''}`.trim();
+        filtroLines.push(`Cliente: ${nombreFiltrado}`);
+      }
+    }
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+
+    // Encabezado (título y filtros)
+    const firstRow = ['', 'Reporte de Clientes - Beneficio por Ventas'];
+    const titleRow = sheet.addRow(firstRow);
+    titleRow.font = { bold: true, size: 14 };
+
+    const secondRow = [''];
+    secondRow.push(`Fecha generación: ${new Date().toLocaleString('es-BO')}`);
+    for (const f of filtroLines) secondRow.push(f);
+    sheet.addRow(secondRow);
+    sheet.addRow([]);
+
+    // Definir columnas
+    sheet.columns = [
+      { key: 'nro', width: 6 },
+      { key: 'nombre', width: 32 },
+      { key: 'ci', width: 14 },
+      { key: 'celular', width: 16 },
+      { key: 'email', width: 28 },
+      { key: 'fecha', width: 24 },
+      { key: 'compras', width: 12 },
+      { key: 'beneficio', width: 16 }
+    ];
+
+    // Insertar fila de encabezado
+    const headerLabels = ['Nro', 'Nombre Completo', 'CI/NIT', 'Celular', 'Email', 'Fecha Registro', 'Cantidad Compras', 'Beneficio Total'];
+    const headerRow = sheet.addRow(headerLabels);
+    headerRow.font = { bold: true, size: 11 };
+    headerRow.alignment = { horizontal: 'center' };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+    });
+
+    // Añadir datos de clientes
+    clientesProcesados.forEach((cliente) => {
+      const row = sheet.addRow([
+        cliente.numero,
+        cliente.nombre_completo,
+        cliente.ci_nit,
+        cliente.celular,
+        cliente.email,
+        cliente.fecha_registro,
+        cliente.cantidad_compras,
+        cliente.beneficio_total.toFixed(2)
+      ]);
+      row.getCell(8).numFmt = '#,##0.00';
+      row.getCell(7).alignment = { horizontal: 'center' };
+      row.getCell(8).alignment = { horizontal: 'right' };
+    });
+
+    // Fila de totales
+    const totalRow = sheet.addRow(['', 'TOTALES', '', '', '', '', totalCompras, totalBeneficio.toFixed(2)]);
+    sheet.mergeCells(totalRow.number, 1, totalRow.number, 6);
+    totalRow.font = { bold: true };
+    totalRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFAED6F1' } };
+    });
+    totalRow.getCell(7).alignment = { horizontal: 'center' };
+    totalRow.getCell(8).alignment = { horizontal: 'right' };
+    totalRow.getCell(8).numFmt = '#,##0.00';
+
+    // Línea vacía antes del resumen
+    sheet.addRow([]);
+
+    // Franja de resumen
+    const bandRow = sheet.addRow(['RESUMEN']);
+    sheet.mergeCells(bandRow.number, 1, bandRow.number, 8);
+    const bandCell = sheet.getCell(bandRow.number, 1);
+    bandCell.font = { bold: true, size: 12 };
+    bandCell.alignment = { horizontal: 'center' };
+    bandCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+
+    // Calcular estadísticas
+    const promedioComprasPorCliente = clientes.length > 0 ? (totalCompras / clientes.length).toFixed(2) : 0;
+    const promedioBeneficioPorCliente = clientes.length > 0 ? (totalBeneficio / clientes.length).toFixed(2) : 0;
+
+    // Resúmenes
+    const sumRow1 = sheet.addRow([]);
+    sumRow1.getCell(2).value = `Total de clientes: ${clientes.length}`;
+    sumRow1.getCell(4).value = `Clientes con compras: ${clientesConCompras}`;
+    sumRow1.getCell(2).font = { bold: true };
+    sumRow1.getCell(4).font = { bold: true };
+    sumRow1.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9F9F9' } };
+    sumRow1.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9F9F9' } };
+
+    const sumRow2 = sheet.addRow([]);
+    sumRow2.getCell(2).value = `Promedio compras por cliente: ${promedioComprasPorCliente}`;
+    sumRow2.getCell(4).value = `Promedio beneficio por cliente: Bs ${parseFloat(promedioBeneficioPorCliente).toFixed(2)}`;
+    sumRow2.getCell(2).font = { bold: true };
+    sumRow2.getCell(4).font = { bold: true };
+    sumRow2.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9F9F9' } };
+    sumRow2.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9F9F9' } };
+
+    // Formato general
+    sheet.eachRow((row) => {
+      row.font = { size: 9 };
+      row.alignment = { vertical: 'middle', wrapText: true };
+    });
+
+    // Generar buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const fileName = `reporte_clientes_${new Date().getTime()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+    res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error('Error al generar XLSX de clientes:', error);
+    res.status(500).send('Error al generar reporte Excel de clientes');
+  }
+};
+
+module.exports = { reporteClientes, obtenerDatosClientes, reporteClientesXlsx };
