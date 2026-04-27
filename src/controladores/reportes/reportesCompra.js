@@ -3,24 +3,53 @@ const PdfPrinter = require("pdfmake");
 const fonts = require("../../utils/pdfFonts");
 const convertImageToBase64 = require("../../utils/imageToBase64");
 const { Op, Sequelize, literal } = require("sequelize");
+const ExcelJS = require('exceljs');
 
 const reporteComprasResumido = async (req, res) => {
   try {
-    const { fecha_inicio, fecha_fin, id_proveedor } = req.body;
+    const { desde, hasta, id_proveedor, busqueda, estado, id_usuario } = req.body;
     console.log('datos de llegada reporte resumido de compras: ', req.body);
+    
+    // Buscar nombres para filtros
+    let nombreProveedorFiltro = null;
+    let nombreUsuarioFiltro = null;
+    
+    if (id_proveedor) {
+      const proveedorObj = await db.proveedor.findByPk(id_proveedor).catch(() => null);
+      if (proveedorObj) {
+        nombreProveedorFiltro = proveedorObj.nombre;
+      }
+    }
+    
+    if (id_usuario) {
+      const usuarioObj = await db.usuario.findByPk(id_usuario).catch(() => null);
+      if (usuarioObj) {
+        nombreUsuarioFiltro = usuarioObj.usuario;
+      }
+    }
     
     // Construir filtros
     let whereClause = {};
     
-    if (fecha_inicio && fecha_fin) {
+    if (desde && hasta) {
       whereClause.fecha_registro = {
-        [Op.between]: [fecha_inicio, fecha_fin]
+        [Op.between]: [desde, hasta]
       };
     }
     
     if (id_proveedor) {
       whereClause.id_proveedor = id_proveedor;
     }
+    
+    if (id_usuario) {
+      whereClause.id_usuario = id_usuario;
+    }
+    
+    if (estado !== undefined && estado !== null && estado !== '') {
+      whereClause.estado = estado;
+    }
+    
+   
 
     // Obtener compras con sus relaciones
     const comprasRaw = await db.compra.findAll({
@@ -56,6 +85,16 @@ const reporteComprasResumido = async (req, res) => {
     // Convertir a objetos planos
     const compras = comprasRaw.map(c => c.get ? c.get({ plain: true }) : c);
 
+    // Buscar usuarios anuladores para compras anuladas
+    for (const compra of compras) {
+      if (compra.estado === 2 && compra.id_usuario_anula) {
+        const usuarioAnulador = await db.usuario.findByPk(compra.id_usuario_anula).catch(() => null);
+        if (usuarioAnulador) {
+          compra.usuario_anulador = usuarioAnulador;
+        }
+      }
+    }
+
     // Helper para texto seguro
     const safeText = (v) => {
       if (v === undefined || v === null) return "";
@@ -74,6 +113,30 @@ const reporteComprasResumido = async (req, res) => {
 
     // Preparar contenido del PDF
     const content = [];
+    
+    // Líneas de filtros
+    const filtroLines = [];
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    if (estado !== undefined && estado !== null && estado !== '') filtroLines.push(`Estado: ${estado === 1 ? 'Activa' : 'Anulada'}`);
+    if (id_proveedor && nombreProveedorFiltro) filtroLines.push(`Proveedor: ${nombreProveedorFiltro}`);
+    if (id_usuario && nombreUsuarioFiltro) filtroLines.push(`Usuario registro: ${nombreUsuarioFiltro}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
+    if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
+    
+    // Agregar filtros al contenido
+    content.push({
+      text: 'Filtros aplicados:',
+      fontSize: 10,
+      bold: true,
+      margin: [0, 0, 0, 5]
+    });
+    
+    content.push({
+      ul: filtroLines,
+      fontSize: 9,
+      margin: [0, 0, 0, 15]
+    });
 
     // Tabla de compras
     const tableBody = [
@@ -99,6 +162,12 @@ const reporteComprasResumido = async (req, res) => {
       
       const detalles = compra.det_compras || [];
       const cantidadProductos = detalles.length;
+      
+      // Estado - si está anulada, mostrar quien anuló
+      let estadoTexto = compra.estado === 1 ? "Activa" : "Anulada";
+      if (compra.estado === 2 && compra.usuario_anulador) {
+        estadoTexto = `Anulada por ${compra.usuario_anulador.usuario || 'desconocido'}`;
+      }
 
       tableBody.push([
         { text: safeText(compra.nro_compra) || compra.id_compra, fontSize: 8 },
@@ -107,7 +176,7 @@ const reporteComprasResumido = async (req, res) => {
         { text: usuario, fontSize: 8 },
         { text: cantidadProductos.toString(), fontSize: 8, alignment: 'center' },
         { text: `Bs${formatMoney(compra.monto_total)}`, fontSize: 8, alignment: 'right' },
-        { text: compra.estado === 1 ? "Activa" : "Anulada", fontSize: 8, alignment: 'center' }
+        { text: estadoTexto, fontSize: 8, alignment: 'center', fillColor: compra.estado === 2 ? '#ffcccc' : undefined }
       ]);
     });
 
@@ -138,6 +207,8 @@ const reporteComprasResumido = async (req, res) => {
 
     // Resumen general
     const totalCompras = compras.length;
+    const comprasAnuladas = compras.filter(c => c.estado === 2);
+    const montoTotalAnuladas = comprasAnuladas.reduce((sum, c) => sum + (c.monto_total || 0), 0);
     const montoTotalGeneral = compras.reduce((sum, c) => sum + (c.monto_total || 0), 0);
     const totalProductosComprados = compras.reduce((sum, c) => {
       const detalles = c.det_compras || [];
@@ -157,6 +228,14 @@ const reporteComprasResumido = async (req, res) => {
           [
             { text: 'Total de Compras:', bold: true },
             { text: totalCompras.toString(), alignment: 'right' }
+          ],
+          [
+            { text: 'Compras Anuladas:', bold: true },
+            { text: comprasAnuladas.length.toString(), alignment: 'right', color: 'red' }
+          ],
+          [
+            { text: 'Monto Total Anuladas:', bold: true },
+            { text: `Bs${formatMoney(montoTotalAnuladas)}`, alignment: 'right', color: 'red', bold: true }
           ],
           [
             { text: 'Monto Total General:', bold: true },
@@ -197,14 +276,7 @@ const reporteComprasResumido = async (req, res) => {
               width: '*',
               stack: [
                 { text: 'REPORTE DE COMPRAS - RESUMIDO', style: 'header', alignment: 'center' },
-                { text: `Fecha: ${new Date().toLocaleDateString('es-ES')}`, style: 'subheader', alignment: 'center' },
-                { 
-                  text: fecha_inicio && fecha_fin ? 
-                    `Periodo: ${fecha_inicio} - ${fecha_fin}` : 
-                    'Todas las compras', 
-                  style: 'subheader', 
-                  alignment: 'center' 
-                }
+                { text: `Fecha generación: ${new Date().toLocaleDateString('es-ES')}`, style: 'subheader', alignment: 'center' }
               ]
             }
           ]
@@ -252,21 +324,49 @@ const reporteComprasResumido = async (req, res) => {
 
 const reporteComprasDetallado = async (req, res) => {
   try {
-    const { fecha_inicio, fecha_fin, id_proveedor } = req.body;
-console.log('datos de llegada reporte compras detallado; ',req.body);
+    const { desde, hasta, id_proveedor, busqueda, estado, id_usuario } = req.body;
+    console.log('datos de llegada reporte compras detallado; ',req.body);
+    
+    // Buscar nombres para filtros
+    let nombreProveedorFiltro = null;
+    let nombreUsuarioFiltro = null;
+    
+    if (id_proveedor) {
+      const proveedorObj = await db.proveedor.findByPk(id_proveedor).catch(() => null);
+      if (proveedorObj) {
+        nombreProveedorFiltro = proveedorObj.nombre;
+      }
+    }
+    
+    if (id_usuario) {
+      const usuarioObj = await db.usuario.findByPk(id_usuario).catch(() => null);
+      if (usuarioObj) {
+        nombreUsuarioFiltro = usuarioObj.usuario;
+      }
+    }
 
     // Construir filtros
     let whereClause = {};
     
-    if (fecha_inicio && fecha_fin) {
+    if (desde && hasta) {
       whereClause.fecha_registro = {
-        [Op.between]: [fecha_inicio, fecha_fin]
+        [Op.between]: [desde, hasta]
       };
     }
     
     if (id_proveedor) {
       whereClause.id_proveedor = id_proveedor;
     }
+    
+    if (id_usuario) {
+      whereClause.id_usuario = id_usuario;
+    }
+    
+    if (estado !== undefined && estado !== null && estado !== '') {
+      whereClause.estado = estado;
+    }
+    
+  
 
     // Obtener compras con sus relaciones
     const comprasRaw = await db.compra.findAll({
@@ -305,7 +405,17 @@ console.log('datos de llegada reporte compras detallado; ',req.body);
     }
 
     // Convertir a objetos planos
-    const compras = comprasRaw.map(c => c.get ? c.get({ plain: true }) : c);
+const compras = comprasRaw.map(c => c.get ? c.get({ plain: true }) : c);
+
+    // Buscar usuarios anuladores para compras anuladas
+    for (const compra of compras) {
+      if (compra.estado === 2 && compra.id_usuario_anula) {
+        const usuarioAnulador = await db.usuario.findByPk(compra.id_usuario_anula).catch(() => null);
+        if (usuarioAnulador) {
+          compra.usuario_anulador = usuarioAnulador;
+        }
+      }
+    }
 
     // Helper para texto seguro
     const safeText = (v) => {
@@ -325,6 +435,30 @@ console.log('datos de llegada reporte compras detallado; ',req.body);
 
     // Preparar contenido del PDF
     const content = [];
+    
+    // Líneas de filtros
+    const filtroLines = [];
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    if (estado !== undefined && estado !== null && estado !== '') filtroLines.push(`Estado: ${estado === 1 ? 'Activa' : 'Anulada'}`);
+    if (id_proveedor && nombreProveedorFiltro) filtroLines.push(`Proveedor: ${nombreProveedorFiltro}`);
+    if (id_usuario && nombreUsuarioFiltro) filtroLines.push(`Usuario registro: ${nombreUsuarioFiltro}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
+    if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
+    
+    // Agregar filtros al contenido
+    content.push({
+      text: 'Filtros aplicados:',
+      fontSize: 10,
+      bold: true,
+      margin: [0, 0, 0, 5]
+    });
+    
+    content.push({
+      ul: filtroLines,
+      fontSize: 9,
+      margin: [0, 0, 0, 15]
+    });
 
     // Resumen general - SOLO COMPRAS ACTIVAS (estado = 1)
     const totalCompras = compras.length;
@@ -386,7 +520,10 @@ console.log('datos de llegada reporte compras detallado; ',req.body);
         : "N/A";
       
       const esAnulada = compra.estado === 2;
-      const estadoTexto = compra.estado === 1 ? 'ACTIVA' : 'ANULADA';
+      let estadoTexto = compra.estado === 1 ? 'ACTIVA' : 'ANULADA';
+      if (compra.estado === 2 && compra.usuario_anulador) {
+        estadoTexto = `ANULADA POR ${(compra.usuario_anulador.usuario || 'desconocido').toUpperCase()}`;
+      }
       const estadoColor = compra.estado === 1 ? '#2196F3' : '#f44336';
       const tituloCompra = `Compra #${safeText(compra.nro_compra) || compra.id_compra} - ${estadoTexto}`;
       
@@ -514,6 +651,10 @@ console.log('datos de llegada reporte compras detallado; ',req.body);
             { text: comprasAnuladas.length.toString(), alignment: 'right', color: 'red' }
           ],
           [
+            { text: 'Monto Total Anuladas:', bold: true },
+            { text: `Bs${formatMoney(comprasAnuladas.reduce((sum, c) => sum + (c.monto_total || 0), 0))}`, alignment: 'right', color: 'red', bold: true }
+          ],
+          [
             { text: 'Monto Total (Solo Activas):', bold: true },
             { text: `Bs${formatMoney(montoTotalGeneral)}`, alignment: 'right', color: 'blue', bold: true }
           ],
@@ -552,14 +693,7 @@ console.log('datos de llegada reporte compras detallado; ',req.body);
               width: '*',
               stack: [
                 { text: 'REPORTE DE COMPRAS - DETALLADO', style: 'header', alignment: 'center' },
-                { text: `Fecha: ${new Date().toLocaleDateString('es-ES')}`, style: 'subheader', alignment: 'center' },
-                { 
-                  text: fecha_inicio && fecha_fin ? 
-                    `Periodo: ${fecha_inicio} - ${fecha_fin}` : 
-                    'Todas las compras', 
-                  style: 'subheader', 
-                  alignment: 'center' 
-                }
+                { text: `Fecha generación: ${new Date().toLocaleDateString('es-ES')}`, style: 'subheader', alignment: 'center' }
               ]
             }
           ]
@@ -877,9 +1011,235 @@ const obtenerDatosComprasDetallado = async (req, res) => {
   }
 };
 
+// Reporte de compras resumido en Excel
+const reporteComprasResumidoXlsx = async (req, res) => {
+  try {
+    const { desde, hasta, id_proveedor, busqueda, estado, id_usuario } = req.body;
+    console.log('datos de llegada reporte resumido de compras Excel: ', req.body);
+    
+    // Buscar nombres para filtros
+    let nombreProveedorFiltro = null;
+    let nombreUsuarioFiltro = null;
+    
+    if (id_proveedor) {
+      const proveedorObj = await db.proveedor.findByPk(id_proveedor).catch(() => null);
+      if (proveedorObj) {
+        nombreProveedorFiltro = proveedorObj.nombre;
+      }
+    }
+    
+    if (id_usuario) {
+      const usuarioObj = await db.usuario.findByPk(id_usuario).catch(() => null);
+      if (usuarioObj) {
+        nombreUsuarioFiltro = usuarioObj.usuario;
+      }
+    }
+    
+    // Construir filtros
+    let whereClause = {};
+    
+    if (desde && hasta) {
+      whereClause.fecha_registro = {
+        [Op.between]: [desde, hasta]
+      };
+    }
+    
+    if (id_proveedor) {
+      whereClause.id_proveedor = id_proveedor;
+    }
+    
+    if (id_usuario) {
+      whereClause.id_usuario = id_usuario;
+    }
+    
+    if (estado !== undefined && estado !== null && estado !== '') {
+      whereClause.estado = estado;
+    }
+    
+
+    // Obtener compras con sus relaciones
+    const comprasRaw = await db.compra.findAll({
+      where: whereClause,
+      include: [
+        { 
+          model: db.proveedor, 
+          attributes: ['id_proveedor', 'nombre', 'ciudad', 'celular', 'email'] 
+        },
+        { 
+          model: db.usuario,
+          as: 'usuario_registro',
+          attributes: ['id_usuario', 'usuario'],
+          include: [
+            {
+              model: db.empleado,
+              attributes: ['nombre', 'ap_paterno','ap_materno']
+            }
+          ]
+        },
+        { 
+          model: db.det_compra,
+          attributes: ['id_detcompra', 'cantidad', 'sub_total']
+        }
+      ],
+      order: [['fecha_registro', 'DESC']]
+    });
+
+    if (!comprasRaw || comprasRaw.length === 0) {
+      return res.status(404).send("No se encontraron compras");
+    }
+
+    // Convertir a objetos planos
+    const compras = comprasRaw.map(c => c.get ? c.get({ plain: true }) : c);
+    
+    // Buscar usuarios anuladores para compras anuladas
+    for (const compra of compras) {
+      if (compra.estado === 2 && compra.id_usuario_anula) {
+        const usuarioAnulador = await db.usuario.findByPk(compra.id_usuario_anula).catch(() => null);
+        if (usuarioAnulador) {
+          compra.usuario_anulador = usuarioAnulador;
+        }
+      }
+    }
+
+    const safeText = (v) => {
+      if (v === undefined || v === null) return "";
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+      if (typeof v === "object") {
+        return v.nombre || v.NOMBRE || v.usuario || v.id || JSON.stringify(v);
+      }
+      return String(v);
+    };
+
+    const formatMoney = (n) =>
+      typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
+
+    // Crear workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Auto Accesorios Pinedo';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet('Compras Resumido');
+
+    // Líneas de filtros
+    const filtroLines = [];
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    if (estado !== undefined && estado !== null && estado !== '') filtroLines.push(`Estado: ${estado === 1 ? 'Activa' : 'Anulada'}`);
+    if (id_proveedor && nombreProveedorFiltro) filtroLines.push(`Proveedor: ${nombreProveedorFiltro}`);
+    if (id_usuario && nombreUsuarioFiltro) filtroLines.push(`Usuario registro: ${nombreUsuarioFiltro}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
+    if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
+
+    // Encabezado (título y filtros)
+    const firstRow = ['', 'Reporte de Compras - RESUMIDO'];
+    const titleRow = sheet.addRow(firstRow);
+    titleRow.font = { bold: true, size: 14 };
+
+    const secondRow = [''];
+    secondRow.push(`Fecha generación: ${new Date().toLocaleString('es-BO')}`);
+    for (const f of filtroLines) secondRow.push(f);
+    sheet.addRow(secondRow);
+    sheet.addRow([]);
+
+    // Headers
+    const headers = ['N° Compra', 'Fecha', 'Proveedor', 'Usuario', 'Productos', 'Monto Total', 'Estado'];
+    const colKeys = ['nro', 'fecha', 'proveedor', 'usuario', 'productos', 'monto', 'estado'];
+    const colWidths = [15, 20, 25, 20, 12, 15, 12];
+    
+    sheet.columns = colKeys.map((key, idx) => ({ key, width: colWidths[idx] }));
+    
+    const headerRow = sheet.addRow(headers);
+    headerRow.font = { bold: true, size: 11 };
+    headerRow.alignment = { horizontal: 'center' };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4CAF50' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    });
+
+    // Agregar datos
+    compras.forEach((compra) => {
+      const proveedor = compra.proveedor ? safeText(compra.proveedor.nombre) : "N/A";
+      const usr = compra.usuario_registro;
+      const usuario = usr
+        ? (usr.empleado
+          ? `${safeText(usr.empleado.nombre)} ${safeText(usr.empleado.ap_paterno)} ${safeText(usr.empleado.ap_materno)}`
+          : safeText(usr.usuario))
+        : "N/A";
+      
+      const detalles = compra.det_compras || [];
+      const cantidadProductos = detalles.length;
+      
+      // Estado - si está anulada, mostrar quien anuló
+      let estadoTexto = compra.estado === 1 ? "Activa" : "Anulada";
+      if (compra.estado === 2 && compra.usuario_anulador) {
+        estadoTexto = `Anulada por ${compra.usuario_anulador.usuario || 'desconocido'}`;
+      }
+
+      const rowData = [
+        safeText(compra.nro_compra) || compra.id_compra,
+        safeText(compra.fecha_registro).substring(0, 19),
+        proveedor,
+        usuario,
+        cantidadProductos,
+        parseFloat(compra.monto_total) || 0,
+        estadoTexto
+      ];
+
+      const row = sheet.addRow(rowData);
+      row.getCell(6).numFmt = '#,##0.00';
+      
+      // Pintar de rojo claro si es anulada
+      if (compra.estado === 2) {
+        row.getCell(7).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFCCCC' }
+        };
+      }
+    });
+
+    // Resumen
+    sheet.addRow([]);
+    const totalCompras = compras.length;
+    const comprasAnuladas = compras.filter(c => c.estado === 2);
+    const montoTotalAnuladas = comprasAnuladas.reduce((sum, c) => sum + (c.monto_total || 0), 0);
+    const montoTotalGeneral = compras.reduce((sum, c) => sum + (c.monto_total || 0), 0);
+    const totalProductosComprados = compras.reduce((sum, c) => {
+      const detalles = c.det_compras || [];
+      return sum + detalles.reduce((s, d) => s + (d.cantidad || 0), 0);
+    }, 0);
+
+    const resumenRow1 = sheet.addRow(['', 'RESUMEN GENERAL']);
+    resumenRow1.font = { bold: true, size: 12 };
+    resumenRow1.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4CAF50' } };
+    resumenRow1.getCell(2).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    
+    sheet.addRow(['', 'Total de Compras:', totalCompras]);
+    sheet.addRow(['', 'Compras Anuladas:', comprasAnuladas.length]);
+    const montoAnuladaRow = sheet.addRow(['', 'Monto Total Anuladas:', montoTotalAnuladas]);
+    montoAnuladaRow.getCell(3).numFmt = '#,##0.00';
+    montoAnuladaRow.getCell(3).font = { bold: true, color: { argb: 'FFFF0000' } };
+    const montoRow = sheet.addRow(['', 'Monto Total General:', montoTotalGeneral]);
+    montoRow.getCell(3).numFmt = '#,##0.00';
+    montoRow.getCell(3).font = { bold: true, color: { argb: 'FF0000FF' } };
+    sheet.addRow(['', 'Total Productos Comprados:', totalProductosComprados]);
+
+    // Generar y enviar
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_compras_resumido_${Date.now()}.xlsx`);
+    
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.error("Error en reporteComprasResumidoXlsx:", error);
+    res.status(500).send("Error al generar el reporte Excel: " + error.message);
+  }
+};
+
 module.exports = {
   reporteComprasResumido,
   reporteComprasDetallado,
+  reporteComprasResumidoXlsx,
   obtenerDatosComprasResumido,
   obtenerDatosComprasDetallado
 };

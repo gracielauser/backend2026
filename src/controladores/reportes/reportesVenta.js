@@ -7,6 +7,7 @@ const convertImageToBase64 = require("../../utils/imageToBase64");
 const qrcode = require('qrcode');
 const { sendPdfReport } = require("../../utils/auxiliares");
 const { Op, Sequelize, literal } = require("sequelize");
+const ExcelJS = require("exceljs");
 
 const ventaNota = async (req, res) => {
   try {
@@ -133,7 +134,7 @@ const generarNotaVenta = async (venta, res) => {
               table: {
                 body: [
                   [{ text: "Vendedor", bold: true, border: [false, false, false, false] }, { text: safeText(venta.usuario_registro?.empleado ? `${venta.usuario_registro.empleado.nombre || ''} ${venta.usuario_registro.empleado.ap_paterno || ''} ${venta.usuario_registro.empleado.ap_materno || ''}`.trim() : venta.usuario_registro?.usuario || 'Sin usuario'), border: [false, false, false, false] }],
-                  [{ text: "Cliente", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim() : 'Sin cliente'), border: [false, false, false, false] }],
+                  [{ text: "Cliente", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente ? `${venta.cliente.nombre_completo || ''}`.trim() : 'Sin cliente'), border: [false, false, false, false] }],
                   [{ text: "CI/NIT", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente?.ci_nit || venta.cliente?.CI_NIT), border: [false, false, false, false] }],
                   [{ text: "Tel", bold: true, border: [false, false, false, false] }, { text: safeText(venta.cliente?.celular || venta.cliente?.CELULAR), border: [false, false, false, false] }]
                 ]
@@ -585,14 +586,18 @@ const buildVentaRowPdf = (venta, counter, orden) => {
   if (orden !== 'cliente') {
     const cli = venta.cliente;
     const nombreCliente = cli
-      ? `${cli.nombre || ''} ${cli.ap_paterno || ''}`.trim() || 'Sin cliente'
+      ? `${cli.nombre_completo || ''}`.trim() || 'Sin cliente'
       : 'Sin cliente';
     row.push({ text: nombreCliente, fontSize: 8 });
   }
 
   // Tipo venta (si no está agrupado por tipo_venta) — viene como string del frontend
   if (orden !== 'tipo_venta') {
-    row.push({ text: venta.tipo_venta || 'Normal', fontSize: 8 });
+    let tipoVentaText = venta.tipo_venta || 'Normal';
+    if ((venta.tipo_venta === 'Facturado' || venta.tipo_venta_valor === 2) && venta.nro_factura) {
+      tipoVentaText = `Facturado Nro. ${venta.nro_factura}`;
+    }
+    row.push({ text: tipoVentaText, fontSize: 8, fillColor: venta.nro_factura ? '#d4edda' : undefined });
   }
 
   // Monto
@@ -610,9 +615,13 @@ const buildVentaRowPdf = (venta, counter, orden) => {
   // Tipo de pago — viene como string del frontend
   row.push({ text: venta.tipo_pago || 'Efectivo', fontSize: 8, alignment: 'center' });
 
-  // Estado — viene como string del frontend
+  // Estado — si está anulada, mostrar quien anuló
   const estadoColor = venta.estado_valor === 1 ? '#00aa00' : '#aa0000';
-  row.push({ text: venta.estado || 'N/A', fontSize: 8, alignment: 'center', color: estadoColor });
+  let estadoTexto = venta.estado || 'N/A';
+  if (venta.estado_valor === 2 && venta.usuario_anulador) {
+    estadoTexto = `Anulada por ${venta.usuario_anulador.usuario || 'desconocido'}`;
+  }
+  row.push({ text: estadoTexto, fontSize: 8, alignment: 'center', color: estadoColor });
 
   return row;
 };
@@ -628,17 +637,65 @@ const reporteVentasResumido = async (req, res) => {
       usuario = ''
     } = req.body || {};
 
-    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, busqueda } = filtros;
+    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, id_usuario, busqueda } = filtros;
 
     console.log('Reporte de ventas resumido - parámetros:', req.body);
+
+    // Buscar nombres de cliente y usuario para filtros
+    let nombreClienteFiltro = null;
+    let nombreUsuarioFiltro = null;
+    
+    if (id_cliente) {
+      const clienteObj = await db.cliente.findByPk(id_cliente).catch(() => null);
+      if (clienteObj) {
+        nombreClienteFiltro = `${clienteObj.nombre || ''} ${clienteObj.ap_paterno || ''} ${clienteObj.ap_materno || ''}`.trim();
+      }
+    }
+    
+    if (id_usuario) {
+      const usuarioObj = await db.usuario.findByPk(id_usuario).catch(() => null);
+      if (usuarioObj) {
+        nombreUsuarioFiltro = usuarioObj.usuario || `Usuario ${id_usuario}`;
+      }
+    }
 
     // Totales desde la lista (solo ventas incluidas en totales)
     const totalVentas = lista
       .filter(v => v.incluida_en_totales)
       .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+    
+    // Total de ventas anuladas
+    const totalVentasAnuladas = lista
+      .filter(v => v.estado_valor === 2)
+      .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
 
     // La lista del frontend ya viene filtrada
     const ventas = lista;
+    
+    // Buscar usuarios anuladores para ventas anuladas
+    for (const venta of ventas) {
+      if (venta.estado_valor === 2) {
+        const ventaDB = await db.venta.findOne({
+          where: { id_venta: venta.id_venta },
+          include: [{ model: db.usuario, as: 'usuario_anulador' }]
+        }).catch(() => null);
+        if (ventaDB && ventaDB.usuario_anulador) {
+          venta.usuario_anulador = ventaDB.usuario_anulador;
+        }
+      }
+    }
+    
+    // Buscar facturas para ventas tipo "Facturado"
+    for (const venta of ventas) {
+      if (venta.tipo_venta === 'Facturado' || venta.tipo_venta_valor === 2) {
+        const factura = await db.factura.findOne({
+          where: { id_venta: venta.id_venta }
+        }).catch(() => null);
+        if (factura) {
+          venta.nro_factura = factura.nro_factura;
+        }
+      }
+    }
     
     // Construir tabla
     const body = [];
@@ -680,7 +737,7 @@ const reporteVentasResumido = async (req, res) => {
         let nombreCliente = 'Sin cliente';
         if (cid !== 'sin') {
           const cli = ventasCli[0].cliente;
-          nombreCliente = cli ? `${cli.nombre || ''} ${cli.ap_paterno || ''}`.trim() || `Cliente ${cid}` : `Cliente ${cid}`;
+          nombreCliente = cli ? `${cli.nombre_completo || ''}`.trim() || `Cliente ${cid}` : `Cliente ${cid}`;
         }
         
         const groupHeader = [{ text: nombreCliente, colSpan: numCols, bold: true, fillColor: '#eaf7ef' }];
@@ -836,6 +893,17 @@ const reporteVentasResumido = async (req, res) => {
     }
     body.push(totalGlobalRow);
     
+    // Total de ventas anuladas (si hay)
+    if (totalVentasAnuladas > 0) {
+      const totalAnuladasRow = [];
+      for (let i = 0; i < numCols; i++) {
+        if (i === numCols - 4) totalAnuladasRow.push({ text: 'TOTAL ANULADAS', bold: true, fillColor: '#ffebee', color: '#c62828' });
+        else if (i === numCols - 3) totalAnuladasRow.push({ text: formatNumber(totalVentasAnuladas), alignment: 'right', bold: true, fillColor: '#ffebee', color: '#c62828' });
+        else totalAnuladasRow.push({ text: '', fillColor: i === numCols - 4 || i === numCols - 3 ? '#ffebee' : undefined });
+      }
+      body.push(totalAnuladasRow);
+    }
+    
     // Configurar anchos de columna para aprovechar todo el ancho de la hoja
     const colWidths = [];
     colWidths.push(25); // Nro
@@ -859,7 +927,8 @@ const reporteVentasResumido = async (req, res) => {
     if (estado) filtroLines.push(`Estado: ${estado}`);
     if (tipo_venta) filtroLines.push(`Tipo venta: ${tipo_venta}`);
     if (tipo_pago) filtroLines.push(`Tipo pago: ${tipo_pago}`);
-    if (id_cliente) filtroLines.push(`Cliente ID: ${id_cliente}`);
+    if (id_cliente && nombreClienteFiltro) filtroLines.push(`Cliente: ${nombreClienteFiltro}`);
+    if (id_usuario && nombreUsuarioFiltro) filtroLines.push(`Usuario registro: ${nombreUsuarioFiltro}`);
     if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
     if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
 
@@ -937,17 +1006,65 @@ const reporteVentasDetallado = async (req, res) => {
       usuario = ''
     } = req.body || {};
 
-    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, busqueda } = filtros;
+    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, id_usuario, busqueda } = filtros;
 
     console.log('Reporte de ventas detallado - parámetros:', req.body);
+
+    // Buscar nombres de cliente y usuario para filtros
+    let nombreClienteFiltro = null;
+    let nombreUsuarioFiltro = null;
+    
+    if (id_cliente) {
+      const clienteObj = await db.cliente.findByPk(id_cliente).catch(() => null);
+      if (clienteObj) {
+        nombreClienteFiltro = `${clienteObj.nombre || ''} ${clienteObj.ap_paterno || ''} ${clienteObj.ap_materno || ''}`.trim();
+      }
+    }
+    
+    if (id_usuario) {
+      const usuarioObj = await db.usuario.findByPk(id_usuario).catch(() => null);
+      if (usuarioObj) {
+        nombreUsuarioFiltro = usuarioObj.usuario || `Usuario ${id_usuario}`;
+      }
+    }
 
     // Totales desde lista (solo ventas incluidas en totales)
     const totalVentas = lista
       .filter(v => v.incluida_en_totales)
       .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+    
+    // Total de ventas anuladas
+    const totalVentasAnuladas = lista
+      .filter(v => v.estado_valor === 2)
+      .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
 
     // La lista del frontend ya viene filtrada
     const ventas = lista;
+    
+    // Buscar usuarios anuladores para ventas anuladas
+    for (const venta of ventas) {
+      if (venta.estado_valor === 2) {
+        const ventaDB = await db.venta.findOne({
+          where: { id_venta: venta.id_venta },
+          include: [{ model: db.usuario, as: 'usuario_anulador' }]
+        }).catch(() => null);
+        if (ventaDB && ventaDB.usuario_anulador) {
+          venta.usuario_anulador = ventaDB.usuario_anulador;
+        }
+      }
+    }
+    
+    // Buscar facturas para ventas tipo "Facturado"
+    for (const venta of ventas) {
+      if (venta.tipo_venta === 'Facturado' || venta.tipo_venta_valor === 2) {
+        const factura = await db.factura.findOne({
+          where: { id_venta: venta.id_venta }
+        }).catch(() => null);
+        if (factura) {
+          venta.nro_factura = factura.nro_factura;
+        }
+      }
+    }
 
     const printer = new PdfPrinter(fonts);
     const logo = convertImageToBase64('../assets/logo2.jpeg');
@@ -958,7 +1075,8 @@ const reporteVentasDetallado = async (req, res) => {
     if (estado) filtroLines.push(`Estado: ${estado}`);
     if (tipo_venta) filtroLines.push(`Tipo venta: ${tipo_venta}`);
     if (tipo_pago) filtroLines.push(`Tipo pago: ${tipo_pago}`);
-    if (id_cliente) filtroLines.push(`Cliente ID: ${id_cliente}`);
+    if (id_cliente && nombreClienteFiltro) filtroLines.push(`Cliente: ${nombreClienteFiltro}`);
+    if (id_usuario && nombreUsuarioFiltro) filtroLines.push(`Usuario registro: ${nombreUsuarioFiltro}`);
     if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
     if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
     
@@ -996,12 +1114,21 @@ const reporteVentasDetallado = async (req, res) => {
       const labelUsuario = venta.label_usuario || 'Registrado por';
 
       const nombreCliente = venta.cliente
-        ? `${venta.cliente.nombre || ''} ${venta.cliente.ap_paterno || ''} ${venta.cliente.ap_materno || ''}`.trim()
+        ? `${venta.cliente.nombre_completo || ''}`.trim()
         : 'Sin cliente';
       const fecha = formatFecha(venta.fecha_registro);
-      const tipoText = venta.tipo_venta || (venta.tipo_venta_valor === 2 ? 'Facturado' : 'Normal');
+      let tipoText = venta.tipo_venta || (venta.tipo_venta_valor === 2 ? 'Facturado' : 'Normal');
+      if ((venta.tipo_venta === 'Facturado' || venta.tipo_venta_valor === 2) && venta.nro_factura) {
+        tipoText = `Facturado Nro. ${venta.nro_factura}`;
+      }
       const tipoPagoText = venta.tipo_pago || (venta.tipo_pago_valor === 2 ? 'QR' : 'Efectivo');
-      const estadoText = venta.estado ? venta.estado.toUpperCase() : (venta.estado_valor === 1 ? 'VÁLIDA' : 'ANULADA');
+      
+      // Estado - si está anulada, mostrar quien anuló
+      let estadoText = venta.estado ? venta.estado.toUpperCase() : (venta.estado_valor === 1 ? 'VÁLIDA' : 'ANULADA');
+      if (venta.estado_valor === 2 && venta.usuario_anulador) {
+        estadoText = `ANULADA POR ${(venta.usuario_anulador.usuario || 'desconocido').toUpperCase()}`;
+      }
+      
       const estadoColor = venta.estado_valor === 1 ? '#2196F3' : '#f44336';
       const esAnulada = venta.estado_valor === 2;
       
@@ -1038,7 +1165,7 @@ const reporteVentasDetallado = async (req, res) => {
             width: '*',
             stack: [
               { text: `Fecha: ${fecha}`, fontSize: 9, alignment: 'right' },
-              { text: `Tipo: ${tipoText}`, fontSize: 9, alignment: 'right' },
+              { text: `Tipo: ${tipoText}`, fontSize: 9, alignment: 'right', fillColor: venta.nro_factura ? '#d4edda' : undefined },
               { text: `Pago: ${tipoPagoText}`, fontSize: 9, alignment: 'right', bold: true, color: venta.tipo_pago_valor === 2 ? '#1976d2' : '#388e3c' }
             ]
           }
@@ -1176,7 +1303,11 @@ const reporteVentasDetallado = async (req, res) => {
           [
             { text: 'Monto Total:', bold: true, fontSize: 12, fillColor: '#e8f5e9' },
             { text: formatNumber(totalVentas), alignment: 'right', fontSize: 12, bold: true, color: 'blue', fillColor: '#e8f5e9' }
-          ]
+          ],
+          ...(totalVentasAnuladas > 0 ? [[
+            { text: 'Total Anuladas:', bold: true, fontSize: 10, fillColor: '#ffebee', color: '#c62828' },
+            { text: formatNumber(totalVentasAnuladas), alignment: 'right', fontSize: 10, bold: true, color: '#c62828', fillColor: '#ffebee' }
+          ]] : [])
         ]
       },
       layout: {
@@ -1715,4 +1846,452 @@ const obtenerDatosVentasDetallado = async (req, res) => {
   }
 };
 
-module.exports = { ventaNota, reporteVentasResumido, reporteVentasDetallado, obtenerDatosVentasResumido, obtenerDatosVentasDetallado };
+// Reporte de ventas RESUMIDO en Excel
+const reporteVentasResumidoXlsx = async (req, res) => {
+  try {
+    const {
+      filtros = {},
+      lista = [],
+      nombreSistema = 'Auto Accesorios Pinedo',
+      orden = null,
+      usuario = ''
+    } = req.body || {};
+
+    const { desde, hasta, tipo_venta, estado, tipo_pago, id_cliente, id_usuario, busqueda } = filtros;
+
+    console.log('Reporte de ventas resumido Excel - parámetros:', req.body);
+
+    // Buscar nombres de cliente y usuario para filtros
+    let nombreClienteFiltro = null;
+    let nombreUsuarioFiltro = null;
+    
+    if (id_cliente) {
+      const clienteObj = await db.cliente.findByPk(id_cliente).catch(() => null);
+      if (clienteObj) {
+        nombreClienteFiltro = `${clienteObj.nombre || ''} ${clienteObj.ap_paterno || ''} ${clienteObj.ap_materno || ''}`.trim();
+      }
+    }
+    
+    if (id_usuario) {
+      const usuarioObj = await db.usuario.findByPk(id_usuario).catch(() => null);
+      if (usuarioObj) {
+        nombreUsuarioFiltro = usuarioObj.usuario || `Usuario ${id_usuario}`;
+      }
+    }
+
+    // Totales desde la lista (solo ventas incluidas en totales)
+    const totalVentas = lista
+      .filter(v => v.incluida_en_totales)
+      .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+    
+    // Total de ventas anuladas
+    const totalVentasAnuladas = lista
+      .filter(v => v.estado_valor === 2)
+      .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+
+    const ventas = lista;
+    
+    // Buscar usuarios anuladores para ventas anuladas
+    for (const venta of ventas) {
+      if (venta.estado_valor === 2) {
+        const ventaDB = await db.venta.findOne({
+          where: { id_venta: venta.id_venta },
+          include: [{ model: db.usuario, as: 'usuario_anulador' }]
+        }).catch(() => null);
+        if (ventaDB && ventaDB.usuario_anulador) {
+          venta.usuario_anulador = ventaDB.usuario_anulador;
+        }
+      }
+    }
+    
+    // Buscar facturas para ventas tipo "Facturado"
+    for (const venta of ventas) {
+      if (venta.tipo_venta === 'Facturado' || venta.tipo_venta_valor === 2) {
+        const factura = await db.factura.findOne({
+          where: { id_venta: venta.id_venta }
+        }).catch(() => null);
+        if (factura) {
+          venta.nro_factura = factura.nro_factura;
+        }
+      }
+    }
+    
+    // Crear workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = nombreSistema || 'Auto Accesorios Pinedo';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet('Ventas Resumido');
+    
+    // Líneas de filtros
+    const filtroLines = [];
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    if (estado) filtroLines.push(`Estado: ${estado}`);
+    if (tipo_venta) filtroLines.push(`Tipo venta: ${tipo_venta}`);
+    if (tipo_pago) filtroLines.push(`Tipo pago: ${tipo_pago}`);
+    if (id_cliente && nombreClienteFiltro) filtroLines.push(`Cliente: ${nombreClienteFiltro}`);
+    if (id_usuario && nombreUsuarioFiltro) filtroLines.push(`Usuario registro: ${nombreUsuarioFiltro}`);
+    if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
+
+    // Encabezado (título y filtros)
+    const firstRow = ['', 'Reporte de ventas - RESUMIDO'];
+    const titleRow = sheet.addRow(firstRow);
+    titleRow.font = { bold: true, size: 14 };
+
+    const secondRow = [''];
+    secondRow.push(`Fecha generación: ${new Date().toLocaleString('es-BO')}`);
+    for (const f of filtroLines) secondRow.push(f);
+    sheet.addRow(secondRow);
+    sheet.addRow([]);
+
+    // Definir columnas según orden
+    const headers = [];
+    const colKeys = [];
+    const colWidths = [];
+
+    headers.push('Nro');
+    colKeys.push('nro');
+    colWidths.push(6);
+    
+    headers.push('Nro Venta');
+    colKeys.push('nro_venta');
+    colWidths.push(12);
+    
+    if (orden !== 'usuario') {
+      headers.push('Usuario');
+      colKeys.push('usuario');
+      colWidths.push(24);
+    }
+    
+    headers.push('Fecha');
+    colKeys.push('fecha');
+    colWidths.push(24);
+    
+    if (orden !== 'cliente') {
+      headers.push('Cliente');
+      colKeys.push('cliente');
+      colWidths.push(24);
+    }
+    
+    if (orden !== 'tipo_venta') {
+      headers.push('Tipo');
+      colKeys.push('tipo');
+      colWidths.push(12);
+    }
+    
+    headers.push('Monto');
+    colKeys.push('monto');
+    colWidths.push(12);
+    
+    headers.push('Desc');
+    colKeys.push('desc');
+    colWidths.push(10);
+    
+    headers.push('Total');
+    colKeys.push('total');
+    colWidths.push(12);
+    
+    headers.push('Tipo Pago');
+    colKeys.push('tipo_pago');
+    colWidths.push(12);
+    
+    headers.push('Estado');
+    colKeys.push('estado');
+    colWidths.push(12);
+
+    // Configurar columnas
+    sheet.columns = colKeys.map((key, idx) => ({ key, width: colWidths[idx] }));
+
+    // Insertar fila de encabezado
+    const headerRow = sheet.addRow(headers);
+    headerRow.font = { bold: true, size: 11 };
+    headerRow.alignment = { horizontal: 'center' };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+    });
+
+    let counter = 1;
+    const numCols = headers.length;
+
+    // Función auxiliar para agregar fila de venta
+    const addVentaRow = (v) => {
+      const rowData = [];
+      
+      rowData.push(counter); // Nro
+      rowData.push(v.nro_venta || ''); // Nro Venta
+      
+      if (orden !== 'usuario') {
+        const usr = v.usuario;
+        const nombreUsuario = usr?.empleado
+          ? `${usr.empleado.nombre || ''} ${usr.empleado.ap_paterno || ''}`.trim()
+          : (usr?.usuario || usr?.nombre_usuario || 'Sin usuario');
+        rowData.push(nombreUsuario);
+      }
+      
+      rowData.push(formatFecha(v.fecha_registro)); // Fecha
+      
+      if (orden !== 'cliente') {
+        const cli = v.cliente;
+        const nombreCliente = cli
+          ? `${cli.nombre_completo || ''} `.trim() || 'Sin cliente'
+          : 'Sin cliente';
+        rowData.push(nombreCliente);
+      }
+      
+      if (orden !== 'tipo_venta') {
+        let tipoVentaText = v.tipo_venta || 'Normal';
+        if ((v.tipo_venta === 'Facturado' || v.tipo_venta_valor === 2) && v.nro_factura) {
+          tipoVentaText = `Facturado Nro. ${v.nro_factura}`;
+        }
+        rowData.push(tipoVentaText);
+      }
+      
+      const monto = parseFloat(v.monto_total) || 0;
+      rowData.push(monto);
+      
+      const descuento = parseFloat(v.descuento) || 0;
+      rowData.push(descuento);
+      
+      const total = parseFloat(v.total) ?? (monto - descuento);
+      rowData.push(total);
+      
+      rowData.push(v.tipo_pago || 'Efectivo');
+      
+      // Estado - si está anulada, mostrar quien anuló
+      let estadoTexto = v.estado || 'N/A';
+      if (v.estado_valor === 2 && v.usuario_anulador) {
+        estadoTexto = `Anulada por ${v.usuario_anulador.usuario || 'desconocido'}`;
+      }
+      rowData.push(estadoTexto);
+      
+      const row = sheet.addRow(rowData);
+      row.getCell(colKeys.indexOf('monto') + 1).numFmt = '#,##0.00';
+      row.getCell(colKeys.indexOf('desc') + 1).numFmt = '#,##0.00';
+      row.getCell(colKeys.indexOf('total') + 1).numFmt = '#,##0.00';
+      row.getCell(colKeys.indexOf('total') + 1).font = { bold: true };
+      
+      // Fondo verde para ventas facturadas
+      if (v.nro_factura && orden !== 'tipo_venta') {
+        const tipoIdx = colKeys.indexOf('tipo');
+        if (tipoIdx >= 0) {
+          row.getCell(tipoIdx + 1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD4EDDA' }
+          };
+        }
+      }
+      
+      counter++;
+    };
+
+    // Si orden es null, solo listar sin agrupar
+    if (orden === null || orden === undefined || orden === '') {
+      for (const v of ventas) {
+        addVentaRow(v);
+      }
+    } else if (orden === 'cliente') {
+      // Agrupar por cliente
+      const byCliente = {};
+      for (const v of ventas) {
+        const cid = v.cliente?.id_cliente || 'sin';
+        if (!byCliente[cid]) byCliente[cid] = [];
+        byCliente[cid].push(v);
+      }
+
+      for (const [cid, ventasCli] of Object.entries(byCliente)) {
+        if (!ventasCli.length) continue;
+
+        let nombreCliente = 'Sin cliente';
+        if (cid !== 'sin') {
+          const cli = ventasCli[0].cliente;
+          nombreCliente = cli ? `${cli.nombre_completo || ''}`.trim() || `Cliente ${cid}` : `Cliente ${cid}`;
+        }
+        
+        // Fila de grupo
+        const groupRow = sheet.addRow([nombreCliente]);
+        sheet.mergeCells(groupRow.number, 1, groupRow.number, numCols);
+        groupRow.font = { bold: true };
+        groupRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF7EF' } };
+        
+        for (const v of ventasCli) {
+          addVentaRow(v);
+        }
+        
+        const clienteTotal = ventasCli
+          .filter(v => v.incluida_en_totales)
+          .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+        
+        const totalRow = sheet.addRow([]);
+        totalRow.getCell(numCols - 2).value = `Total ${nombreCliente}`;
+        totalRow.getCell(numCols).value = clienteTotal;
+        totalRow.getCell(numCols - 2).font = { bold: true };
+        totalRow.getCell(numCols).font = { bold: true };
+        totalRow.getCell(numCols).numFmt = '#,##0.00';
+        totalRow.getCell(numCols - 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+        totalRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+      }
+    } else if (orden === 'usuario') {
+      // Agrupar por usuario
+      const byUsuario = {};
+      for (const v of ventas) {
+        const uid = v.usuario?.id_usuario || 'sin';
+        if (!byUsuario[uid]) byUsuario[uid] = [];
+        byUsuario[uid].push(v);
+      }
+
+      for (const [uid, ventasUsr] of Object.entries(byUsuario)) {
+        if (!ventasUsr.length) continue;
+
+        let nombreUsuario = 'Sin usuario';
+        if (uid !== 'sin') {
+          const usr = ventasUsr[0].usuario;
+          nombreUsuario = usr?.empleado
+            ? `${usr.empleado.nombre || ''} ${usr.empleado.ap_paterno || ''}`.trim()
+            : (usr?.usuario || `Usuario ${uid}`);
+        }
+        
+        // Fila de grupo
+        const groupRow = sheet.addRow([nombreUsuario]);
+        sheet.mergeCells(groupRow.number, 1, groupRow.number, numCols);
+        groupRow.font = { bold: true };
+        groupRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF7EF' } };
+        
+        for (const v of ventasUsr) {
+          addVentaRow(v);
+        }
+        
+        const usuarioTotal = ventasUsr
+          .filter(v => v.incluida_en_totales)
+          .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+        
+        const totalRow = sheet.addRow([]);
+        totalRow.getCell(numCols - 2).value = `Total ${nombreUsuario}`;
+        totalRow.getCell(numCols).value = usuarioTotal;
+        totalRow.getCell(numCols - 2).font = { bold: true };
+        totalRow.getCell(numCols).font = { bold: true };
+        totalRow.getCell(numCols).numFmt = '#,##0.00';
+        totalRow.getCell(numCols - 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+        totalRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+      }
+    } else if (orden === 'tipo_venta') {
+      // Agrupar por tipo de venta
+      const byTipo = {};
+      for (const v of ventas) {
+        const tid = v.tipo_venta_valor || 1;
+        if (!byTipo[tid]) byTipo[tid] = [];
+        byTipo[tid].push(v);
+      }
+
+      for (const [tid, ventasTipo] of Object.entries(byTipo)) {
+        if (!ventasTipo.length) continue;
+
+        const nombreTipo = ventasTipo[0]?.tipo_venta || (tid == 2 ? 'Facturado' : 'Normal');
+        
+        // Fila de grupo
+        const groupRow = sheet.addRow([nombreTipo]);
+        sheet.mergeCells(groupRow.number, 1, groupRow.number, numCols);
+        groupRow.font = { bold: true };
+        groupRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF7EF' } };
+        
+        for (const v of ventasTipo) {
+          addVentaRow(v);
+        }
+        
+        const tipoTotal = ventasTipo
+          .filter(v => v.incluida_en_totales)
+          .reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+        
+        const totalRow = sheet.addRow([]);
+        totalRow.getCell(numCols - 2).value = `Total ${nombreTipo}`;
+        totalRow.getCell(numCols).value = tipoTotal;
+        totalRow.getCell(numCols - 2).font = { bold: true };
+        totalRow.getCell(numCols).font = { bold: true };
+        totalRow.getCell(numCols).numFmt = '#,##0.00';
+        totalRow.getCell(numCols - 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+        totalRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+      }
+    }
+    
+    // Línea vacía antes del resumen
+    sheet.addRow([]);
+    
+    // Calcular totales por método de pago (solo ventas incluidas en totales)
+    let totalEfectivo = 0;
+    let totalQR = 0;
+    for (const v of ventas) {
+      if (!v.incluida_en_totales) continue;
+      const totalVenta = parseFloat(v.total) || 0;
+      if (v.tipo_pago_valor === 2) {
+        totalQR += totalVenta;
+      } else {
+        totalEfectivo += totalVenta;
+      }
+    }
+    
+    // Total Efectivo
+    const totalEfectivoRow = sheet.addRow([]);
+    totalEfectivoRow.getCell(numCols - 1).value = 'Total Efectivo';
+    totalEfectivoRow.getCell(numCols).value = totalEfectivo;
+    totalEfectivoRow.getCell(numCols - 1).font = { bold: true, color: { argb: 'FF388E3C' } };
+    totalEfectivoRow.getCell(numCols).font = { bold: true, color: { argb: 'FF388E3C' } };
+    totalEfectivoRow.getCell(numCols).numFmt = '#,##0.00';
+    totalEfectivoRow.getCell(numCols - 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+    totalEfectivoRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+    
+    // Total QR
+    const totalQRRow = sheet.addRow([]);
+    totalQRRow.getCell(numCols - 1).value = 'Total QR';
+    totalQRRow.getCell(numCols).value = totalQR;
+    totalQRRow.getCell(numCols - 1).font = { bold: true, color: { argb: 'FF1976D2' } };
+    totalQRRow.getCell(numCols).font = { bold: true, color: { argb: 'FF1976D2' } };
+    totalQRRow.getCell(numCols).numFmt = '#,##0.00';
+    totalQRRow.getCell(numCols - 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+    totalQRRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+    
+    // Línea vacía antes del total general
+    sheet.addRow([]);
+    
+    // Total General
+    const totalGlobalRow = sheet.addRow([]);
+    totalGlobalRow.getCell(numCols - 1).value = 'TOTAL GENERAL';
+    totalGlobalRow.getCell(numCols).value = totalVentas;
+    totalGlobalRow.getCell(numCols - 1).font = { bold: true, size: 12 };
+    totalGlobalRow.getCell(numCols).font = { bold: true, size: 12 };
+    totalGlobalRow.getCell(numCols).numFmt = '#,##0.00';
+    totalGlobalRow.getCell(numCols - 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFAED6F1' } };
+    totalGlobalRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFAED6F1' } };
+    
+    // Total de ventas anuladas (si hay)
+    if (totalVentasAnuladas > 0) {
+      const totalAnuladasRow = sheet.addRow([]);
+      totalAnuladasRow.getCell(numCols - 1).value = 'TOTAL ANULADAS';
+      totalAnuladasRow.getCell(numCols).value = totalVentasAnuladas;
+      totalAnuladasRow.getCell(numCols - 1).font = { bold: true, size: 10, color: { argb: 'FFC62828' } };
+      totalAnuladasRow.getCell(numCols).font = { bold: true, size: 10, color: { argb: 'FFC62828' } };
+      totalAnuladasRow.getCell(numCols).numFmt = '#,##0.00';
+      totalAnuladasRow.getCell(numCols - 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
+      totalAnuladasRow.getCell(numCols).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
+    }
+    
+    // Formato general
+    sheet.eachRow((row) => {
+      row.font = { size: 9 };
+      row.alignment = { vertical: 'middle', wrapText: true };
+    });
+
+    // Generar buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const fileName = `ventas_reporte_resumido_${new Date().getTime()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+    res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error('Error al generar Excel de ventas resumido:', error);
+    res.status(500).send('Error al generar reporte Excel de ventas resumido');
+  }
+};
+
+module.exports = { ventaNota, reporteVentasResumido, reporteVentasResumidoXlsx, reporteVentasDetallado, obtenerDatosVentasResumido, obtenerDatosVentasDetallado };
