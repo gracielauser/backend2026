@@ -8,8 +8,49 @@ const { Op, Sequelize, literal } = require("sequelize");
 
 const reporteInventario = async (req, res) => {
   try {
+    console.log("Generando reporte de inventario...",req.body);
+    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo } = req.body;
+
+    // Buscar nombres para filtros
+    let nombreCategoriaFiltro = null;
+    let nombreMarcaFiltro = null;
+    let nombreUnidadFiltro = null;
+    
+    if (id_categoria) {
+      const categoriaObj = await db.categoria.findByPk(id_categoria).catch(() => null);
+      if (categoriaObj) nombreCategoriaFiltro = categoriaObj.nombre;
+    }
+    
+    if (id_marca) {
+      const marcaObj = await db.marca.findByPk(id_marca).catch(() => null);
+      if (marcaObj) nombreMarcaFiltro = marcaObj.nombre;
+    }
+    
+    if (id_unidad_medida) {
+      const unidadObj = await db.unidad_medida.findByPk(id_unidad_medida).catch(() => null);
+      if (unidadObj) nombreUnidadFiltro = unidadObj.nombre;
+    }
+
+    // Construir filtros
+    let whereClause = {};
+    
+    if (id_categoria) whereClause.id_categoria = id_categoria;
+    if (id_marca) whereClause.id_marca = id_marca;
+    if (estado !== undefined && estado !== null && estado !== '') whereClause.estado = estado;
+    if (id_unidad_medida) whereClause.id_unidad_medida = id_unidad_medida;
+    if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') {
+      whereClause.stock = { [Op.lte]: stock_minimo };
+    }
+    if (busqueda) {
+      whereClause[Op.or] = [
+        { codigo: { [Op.iLike]: `%${busqueda}%` } },
+        { nombre: { [Op.iLike]: `%${busqueda}%` } }
+      ];
+    }
+
     // Obtener todos los productos con sus relaciones
     const productosRaw = await db.producto.findAll({
+      where: whereClause,
       include: [
         { model: db.categoria, attributes: ['id_categoria', 'nombre'] },
         { model: db.marca, attributes: ['id_marca', 'nombre'] },
@@ -41,6 +82,16 @@ const reporteInventario = async (req, res) => {
 
     const formatMoney = (n) =>
       typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
+
+    // Líneas de filtros
+    const filtroLines = [];
+    if (id_categoria && nombreCategoriaFiltro) filtroLines.push(`Categoría: ${nombreCategoriaFiltro}`);
+    if (id_marca && nombreMarcaFiltro) filtroLines.push(`Marca: ${nombreMarcaFiltro}`);
+    if (estado !== undefined && estado !== null && estado !== '') filtroLines.push(`Estado: ${estado === 1 ? 'Activo' : 'Inactivo'}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
+    if (id_unidad_medida && nombreUnidadFiltro) filtroLines.push(`Unidad de Medida: ${nombreUnidadFiltro}`);
+    if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') filtroLines.push(`Stock <= ${stock_minimo}`);
+    if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
 
     // Calcular totales
     const totalProductos = productos.length;
@@ -112,7 +163,9 @@ const reporteInventario = async (req, res) => {
               stack: [
                 { text: 'REPORTE DE INVENTARIO DE PRODUCTOS', style: 'header', alignment: 'center' },
                 { text: `Fecha: ${new Date().toLocaleDateString('es-ES')}`, style: 'subheader', alignment: 'center' },
-                { text: `Total de Productos: ${totalProductos}`, style: 'subheader', alignment: 'center' }
+                { text: `Total de Productos: ${totalProductos}`, style: 'subheader', alignment: 'center' },
+                { text: 'Filtros aplicados:', fontSize: 8, bold: true, alignment: 'center', margin: [0, 5, 0, 2] },
+                ...filtroLines.map(f => ({ text: f, fontSize: 7, alignment: 'center' }))
               ]
             }
           ]
@@ -815,8 +868,28 @@ const reporteGananciasProducto = async (req, res) => {
 // Obtener datos de inventario para vista previa (sin generar PDF)
 const obtenerDatosInventario = async (req, res) => {
   try {
+    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo } = req.body;
+
+    // Construir filtros
+    let whereClause = {};
+    
+    if (id_categoria) whereClause.id_categoria = id_categoria;
+    if (id_marca) whereClause.id_marca = id_marca;
+    if (estado !== undefined && estado !== null && estado !== '') whereClause.estado = estado;
+    if (id_unidad_medida) whereClause.id_unidad_medida = id_unidad_medida;
+    if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') {
+      whereClause.stock = { [Op.lte]: stock_minimo };
+    }
+    if (busqueda) {
+      whereClause[Op.or] = [
+        { codigo: { [Op.iLike]: `%${busqueda}%` } },
+        { nombre: { [Op.iLike]: `%${busqueda}%` } }
+      ];
+    }
+
     // Obtener todos los productos con sus relaciones
     const productosRaw = await db.producto.findAll({
+      where: whereClause,
       include: [
         { model: db.categoria, attributes: ['id_categoria', 'nombre'] },
         { model: db.marca, attributes: ['id_marca', 'nombre'] },
@@ -827,7 +900,8 @@ const obtenerDatosInventario = async (req, res) => {
     });
 
     if (!productosRaw || productosRaw.length === 0) {
-      return res.status(404).json({ mensaje: "No se encontraron productos" });
+      // return res.status(404).json({ mensaje: "No se encontraron productos" });
+      return res.status(200).json({})
     }
 
     // Convertir a objetos planos
@@ -910,9 +984,192 @@ const obtenerDatosInventario = async (req, res) => {
   }
 };
 
+// Reporte de inventario en Excel
+const reporteInventarioXlsx = async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo } = req.body;
+
+    // Buscar nombres para filtros
+    let nombreCategoriaFiltro = null;
+    let nombreMarcaFiltro = null;
+    let nombreUnidadFiltro = null;
+    
+    if (id_categoria) {
+      const categoriaObj = await db.categoria.findByPk(id_categoria).catch(() => null);
+      if (categoriaObj) nombreCategoriaFiltro = categoriaObj.nombre;
+    }
+    
+    if (id_marca) {
+      const marcaObj = await db.marca.findByPk(id_marca).catch(() => null);
+      if (marcaObj) nombreMarcaFiltro = marcaObj.nombre;
+    }
+    
+    if (id_unidad_medida) {
+      const unidadObj = await db.unidad_medida.findByPk(id_unidad_medida).catch(() => null);
+      if (unidadObj) nombreUnidadFiltro = unidadObj.nombre;
+    }
+
+    // Construir filtros
+    let whereClause = {};
+    
+    if (id_categoria) whereClause.id_categoria = id_categoria;
+    if (id_marca) whereClause.id_marca = id_marca;
+    if (estado !== undefined && estado !== null && estado !== '') whereClause.estado = estado;
+    if (id_unidad_medida) whereClause.id_unidad_medida = id_unidad_medida;
+    if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') {
+      whereClause.stock = { [Op.lte]: stock_minimo };
+    }
+    if (busqueda) {
+      whereClause[Op.or] = [
+        { codigo: { [Op.iLike]: `%${busqueda}%` } },
+        { nombre: { [Op.iLike]: `%${busqueda}%` } }
+      ];
+    }
+
+    // Obtener productos
+    const productosRaw = await db.producto.findAll({
+      where: whereClause,
+      include: [
+        { model: db.categoria, attributes: ['id_categoria', 'nombre'] },
+        { model: db.marca, attributes: ['id_marca', 'nombre'] },
+        { model: db.unidad_medida, attributes: ['id_unidad_medida', 'nombre', 'abreviatura'] }
+      ],
+      order: [['nombre', 'ASC']]
+    });
+
+    if (!productosRaw || productosRaw.length === 0) {
+      return res.status(404).send("No se encontraron productos");
+    }
+
+    const productos = productosRaw.map(p => p.get ? p.get({ plain: true }) : p);
+
+    const safeText = (v) => {
+      if (v === undefined || v === null) return "";
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+      if (typeof v === "object") {
+        return v.nombre || v.NOMBRE || v.id || JSON.stringify(v);
+      }
+      return String(v);
+    };
+
+    const formatMoney = (n) =>
+      typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
+
+    // Líneas de filtros
+    const filtroLines = [];
+    if (id_categoria && nombreCategoriaFiltro) filtroLines.push(`Categoría: ${nombreCategoriaFiltro}`);
+    if (id_marca && nombreMarcaFiltro) filtroLines.push(`Marca: ${nombreMarcaFiltro}`);
+    if (estado !== undefined && estado !== null && estado !== '') filtroLines.push(`Estado: ${estado === 1 ? 'Activo' : 'Inactivo'}`);
+    if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
+    if (id_unidad_medida && nombreUnidadFiltro) filtroLines.push(`Unidad de Medida: ${nombreUnidadFiltro}`);
+    if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') filtroLines.push(`Stock <= ${stock_minimo}`);
+    if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
+
+    // Calcular totales
+    const totalProductos = productos.length;
+    const productosActivos = productos.filter(p => p.estado === 1).length;
+    const productosInactivos = productos.filter(p => p.estado !== 1).length;
+    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
+    const gananciaPotencial = valorInventarioVenta - valorInventarioCompra;
+    const margenGananciaTotal = valorInventarioCompra > 0 
+      ? ((gananciaPotencial / valorInventarioCompra) * 100).toFixed(2)
+      : '0.00';
+
+    // Crear workbook
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Inventario');
+
+    // Encabezado
+    const firstRow = ['', 'Reporte de Inventario de Productos'];
+    const titleRow = sheet.addRow(firstRow);
+    titleRow.font = { bold: true, size: 14 };
+
+    const secondRow = [''];
+    secondRow.push(`Fecha generación: ${new Date().toLocaleString('es-BO')}`);
+    for (const f of filtroLines) secondRow.push(f);
+    sheet.addRow(secondRow);
+    sheet.addRow([]);
+
+    // Resumen de totales
+    const resumenRow = sheet.addRow(['', 'RESUMEN GENERAL']);
+    resumenRow.font = { bold: true, size: 12 };
+    resumenRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4CAF50' } };
+    resumenRow.getCell(2).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    
+    sheet.addRow(['', 'Total de Productos:', totalProductos]);
+    sheet.addRow(['', 'Productos Activos:', productosActivos]);
+    sheet.addRow(['', 'Productos Inactivos:', productosInactivos]);
+    sheet.addRow(['', 'Total Unidades en Stock:', totalStock]);
+    const valorCompraRow = sheet.addRow(['', 'Valor Inventario (Compra):', valorInventarioCompra]);
+    valorCompraRow.getCell(3).numFmt = '#,##0.00';
+    const valorVentaRow = sheet.addRow(['', 'Valor Inventario (Venta):', valorInventarioVenta]);
+    valorVentaRow.getCell(3).numFmt = '#,##0.00';
+    const gananciaPotRow = sheet.addRow(['', 'Ganancia Potencial:', gananciaPotencial]);
+    gananciaPotRow.getCell(3).numFmt = '#,##0.00';
+    sheet.addRow(['', 'Margen de Ganancia Total:', `${margenGananciaTotal}%`]);
+
+    sheet.addRow([]);
+
+    // Headers de tabla
+    const headers = ['Código', 'Nombre', 'Categoría', 'Marca', 'U. Medida', 'Stock', 'Stock Mín', 'P. Compra', 'Margen %', 'P. Venta', 'Estado'];
+    const colKeys = ['codigo', 'nombre', 'categoria', 'marca', 'unidad', 'stock', 'stock_min', 'p_compra', 'margen', 'p_venta', 'estado'];
+    const colWidths = [15, 30, 20, 20, 12, 10, 10, 12, 12, 12, 12];
+    
+    sheet.columns = colKeys.map((key, idx) => ({ key, width: colWidths[idx] }));
+    
+    const headerRow = sheet.addRow(headers);
+    headerRow.eachCell((cell, colNumber) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4CAF50' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    });
+
+    // Agregar productos
+    productos.forEach((producto) => {
+      const precioCompra = parseFloat(producto.precio_compra) || 0;
+      const precioVenta = parseFloat(producto.precio_venta) || 0;
+      const margenProducto = precioCompra > 0 
+        ? (((precioVenta - precioCompra) / precioCompra) * 100).toFixed(2)
+        : '0.00';
+
+      const rowData = [
+        safeText(producto.codigo),
+        safeText(producto.nombre),
+        producto.categorium ? safeText(producto.categorium.nombre) : "N/A",
+        producto.marca ? safeText(producto.marca.nombre) : "N/A",
+        producto.unidad_medida ? safeText(producto.unidad_medida.abreviatura || producto.unidad_medida.nombre) : "N/A",
+        producto.stock || 0,
+        producto.stock_minimo || 0,
+        precioCompra,
+        parseFloat(margenProducto),
+        precioVenta,
+        producto.estado === 1 ? "Activo" : "Inactivo"
+      ];
+
+      const row = sheet.addRow(rowData);
+      row.getCell(8).numFmt = '#,##0.00';
+      row.getCell(10).numFmt = '#,##0.00';
+    });
+
+    // Generar y enviar
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_inventario_${Date.now()}.xlsx`);
+    
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.error("Error en reporteInventarioXlsx:", error);
+    res.status(500).send("Error al generar el reporte de inventario Excel: " + error.message);
+  }
+};
+
 module.exports = {
   reporteInventario,
   reporteCatalogoProductos,
   reporteGananciasProducto,
-  obtenerDatosInventario
+  obtenerDatosInventario,
+  reporteInventarioXlsx
 };
