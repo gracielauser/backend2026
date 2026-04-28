@@ -6,7 +6,7 @@ const convertImageToBase64 = require("../../utils/imageToBase64");
 
 const obtenerDatosTendencia = async (req, res) => {
   try {
-    const { nombre_codigo, id_categoria, id_marca, desde, hasta, tipo_venta } = req.body || {};
+    const { nombre_codigo, id_categoria, id_marca, desde, hasta, tipo_venta, orden } = req.body || {};
     
     console.log('Body de reporteTendencia:', req.body);
     
@@ -115,6 +115,15 @@ const obtenerDatosTendencia = async (req, res) => {
       nest: true
     });
 
+    // Ordenar según el parámetro orden
+    if (orden === 'vendido') {
+      resultados.sort((a, b) => parseFloat(b.total_vendido) - parseFloat(a.total_vendido));
+    } else if (orden === 'ingreso') {
+      resultados.sort((a, b) => parseFloat(b.total_ingresos) - parseFloat(a.total_ingresos));
+    } else if (orden === 'ganancia') {
+      resultados.sort((a, b) => parseFloat(b.ganancia_neta) - parseFloat(a.ganancia_neta));
+    }
+
     return res.status(200).json(resultados);
 
   } catch (error) {
@@ -128,7 +137,7 @@ const obtenerDatosTendencia = async (req, res) => {
 
 const tendenciaPDF = async (req, res) => {
   try {
-    const { nombre_codigo, id_categoria, id_marca, desde, hasta, tipo_venta, usuario, nombreSistema } = req.body || {};
+    const { nombre_codigo, id_categoria, id_marca, desde, hasta, tipo_venta, orden, usuario, nombreSistema } = req.body || {};
     
     console.log('Body de tendenciaPDF:', req.body);
     
@@ -241,6 +250,15 @@ const tendenciaPDF = async (req, res) => {
       return res.status(404).send("No se encontraron datos para generar el reporte");
     }
 
+    // Ordenar según el parámetro orden
+    if (orden === 'vendido') {
+      resultados.sort((a, b) => parseFloat(b.total_vendido) - parseFloat(a.total_vendido));
+    } else if (orden === 'ingreso') {
+      resultados.sort((a, b) => parseFloat(b.total_ingresos) - parseFloat(a.total_ingresos));
+    } else if (orden === 'ganancia') {
+      resultados.sort((a, b) => parseFloat(b.ganancia_neta) - parseFloat(a.ganancia_neta));
+    }
+
     // Helper para formatear números
     const formatNumber = (num) => {
       const n = parseFloat(num) || 0;
@@ -278,6 +296,11 @@ const tendenciaPDF = async (req, res) => {
     }
     
     if (nombre_codigo) filtroLines.push(`Búsqueda: ${nombre_codigo}`);
+    
+    if (orden) {
+      const ordenTexto = orden === 'vendido' ? 'Más Vendido' : orden === 'ingreso' ? 'Mayor Ingreso' : 'Mayor Ganancia';
+      filtroLines.push(`Ordenado por: ${ordenTexto}`);
+    }
     
     if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
 
@@ -425,8 +448,288 @@ const tendenciaPDF = async (req, res) => {
     });
   }
 };
+const tendenciaXlsx = async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const { nombre_codigo, id_categoria, id_marca, desde, hasta, tipo_venta, orden, usuario, nombreSistema } = req.body || {};
+    
+    console.log('Body de tendenciaXlsx:', req.body);
+    
+    // Construir filtros para producto
+    const whereProducto = {};
+    
+    if (id_categoria && String(id_categoria).trim() !== '') {
+      whereProducto.id_categoria = parseInt(id_categoria);
+    }
+    
+    if (id_marca && String(id_marca).trim() !== '') {
+      whereProducto.id_marca = parseInt(id_marca);
+    }
+    
+    if (nombre_codigo && String(nombre_codigo).trim() !== '') {
+      const busqueda = String(nombre_codigo).trim();
+      whereProducto[Op.or] = [
+        { nombre: { [Op.iLike]: `%${busqueda}%` } },
+        { codigo: { [Op.iLike]: `%${busqueda}%` } }
+      ];
+    }
+    
+    // Construir filtros para venta (fecha_registro y tipo_venta)
+    const desdeVal = desde && String(desde).trim() !== '' ? String(desde).trim() : null;
+    const hastaVal = hasta && String(hasta).trim() !== '' ? String(hasta).trim() : null;
+    
+    const whereVenta = {
+      estado: 1,
+      [Op.and]: [
+        ...(desdeVal ? [Sequelize.literal(`SUBSTRING(CAST(\"ventum\".\"fecha_registro\" AS TEXT), 1, 10) >= '${desdeVal}'`)] : []),
+        ...(hastaVal ? [Sequelize.literal(`SUBSTRING(CAST(\"ventum\".\"fecha_registro\" AS TEXT), 1, 10) <= '${hastaVal}'`)] : [])
+      ]
+    };
+    
+    // Filtro de tipo_venta (1=normal, 2=facturado, 0 o null=todos)
+    if (tipo_venta && parseInt(tipo_venta) !== 0) {
+      whereVenta.tipo_venta = parseInt(tipo_venta);
+    }
+    
+    // Realizar la consulta agrupada por producto
+    const resultados = await db.det_venta.findAll({
+      attributes: [
+        'id_producto',
+        [Sequelize.fn('SUM', Sequelize.col('det_venta.cantidad')), 'total_vendido'],
+        [Sequelize.fn('SUM', Sequelize.col('det_venta.sub_total')), 'total_ingresos'],
+        [Sequelize.fn('SUM',
+          Sequelize.literal(`
+            CASE 
+              WHEN \"ventum\".\"tipo_venta\" = 2 
+              THEN (
+                ((\"det_venta\".\"sub_total\" - (\"det_venta\".\"precio_compra\" * \"det_venta\".\"cantidad\"))
+                  * (((\"ventum\".\"monto_total\" - \"ventum\".\"descuento\")::numeric / \"ventum\".\"monto_total\"))
+                )
+                - (((\"ventum\".\"monto_total\" - \"ventum\".\"descuento\") * 0.13) * (\"det_venta\".\"sub_total\" / \"ventum\".\"monto_total\"))
+              )
+              ELSE (
+                (\"det_venta\".\"sub_total\" - (\"det_venta\".\"precio_compra\" * \"det_venta\".\"cantidad\"))
+                  * (((\"ventum\".\"monto_total\" - \"ventum\".\"descuento\")::numeric / \"ventum\".\"monto_total\"))
+              )
+            END
+          `)
+        ), 'ganancia_neta']
+      ],
+      include: [
+        {
+          model: db.venta,
+          attributes: [],
+          where: whereVenta,
+          required: true
+        },
+        {
+          model: db.producto,
+          attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock', 'estado'],
+          where: whereProducto,
+          required: true,
+          include: [
+            {
+              model: db.categoria,
+              attributes: ['nombre'],
+              required: false
+            },
+            {
+              model: db.marca,
+              attributes: ['nombre'],
+              required: false
+            }
+          ]
+        }
+      ],
+      group: [
+        'det_venta.id_producto', 
+        'producto.id_producto', 
+        'producto.codigo', 
+        'producto.nombre',
+        'producto.estado', 
+        'producto.precio_compra', 
+        'producto.precio_venta', 
+        'producto.stock', 
+        'producto->categorium.id_categoria', 
+        'producto->categorium.nombre',
+        'producto->marca.id_marca', 
+        'producto->marca.nombre'
+      ],
+      order: [[Sequelize.literal('ganancia_neta'), 'DESC']],
+      raw: true,
+      nest: true
+    });
+
+    if (!resultados || resultados.length === 0) {
+      return res.status(404).send("No se encontraron datos para generar el reporte");
+    }
+
+    // Ordenar según el parámetro orden
+    if (orden === 'vendido') {
+      resultados.sort((a, b) => parseFloat(b.total_vendido) - parseFloat(a.total_vendido));
+    } else if (orden === 'ingreso') {
+      resultados.sort((a, b) => parseFloat(b.total_ingresos) - parseFloat(a.total_ingresos));
+    } else if (orden === 'ganancia') {
+      resultados.sort((a, b) => parseFloat(b.ganancia_neta) - parseFloat(a.ganancia_neta));
+    }
+
+    const safeText = (v) => {
+      if (v === undefined || v === null) return "";
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+      return String(v);
+    };
+
+    const formatMoney = (n) =>
+      typeof n === "number" ? n.toFixed(2) : (Number(n) || 0).toFixed(2);
+
+    // Construir líneas de filtros para la cabecera
+    const filtroLines = [];
+    
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    
+    if (tipo_venta && parseInt(tipo_venta) !== 0) {
+      const tipoVentaTexto = parseInt(tipo_venta) === 1 ? 'Normal' : 'Facturado';
+      filtroLines.push(`Tipo de Venta: ${tipoVentaTexto}`);
+    }
+    
+    if (id_categoria) {
+      const cat = await db.categoria.findByPk(id_categoria, { attributes: ['nombre'] });
+      if (cat) filtroLines.push(`Categoría: ${cat.nombre}`);
+    }
+    
+    if (id_marca) {
+      const marc = await db.marca.findByPk(id_marca, { attributes: ['nombre'] });
+      if (marc) filtroLines.push(`Marca: ${marc.nombre}`);
+    }
+    
+    if (nombre_codigo) filtroLines.push(`Búsqueda: ${nombre_codigo}`);
+    
+    if (orden) {
+      const ordenTexto = orden === 'vendido' ? 'Más Vendido' : orden === 'ingreso' ? 'Mayor Ingreso' : 'Mayor Ganancia';
+      filtroLines.push(`Ordenado por: ${ordenTexto}`);
+    }
+    
+    if (!filtroLines.length) filtroLines.push('Sin filtros aplicados');
+
+    // Calcular totales
+    let totalGananciaNeta = 0;
+    let totalIngresos = 0;
+    let totalCantidadVendida = 0;
+    let totalStockActual = 0;
+
+    resultados.forEach((item) => {
+      const ganancia_neta = parseFloat(item.ganancia_neta) || 0;
+      const total_ingresos = parseFloat(item.total_ingresos) || 0;
+      const stock = parseInt(item.producto.stock) || 0;
+      const cantidad_vendida = parseInt(item.total_vendido) || 0;
+
+      totalGananciaNeta += ganancia_neta;
+      totalIngresos += total_ingresos;
+      totalCantidadVendida += cantidad_vendida;
+      totalStockActual += stock;
+    });
+
+    // Crear workbook
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Tendencia de Productos');
+
+    // Encabezado
+    const firstRow = ['', 'Reporte de Tendencia de Productos'];
+    const titleRow = sheet.addRow(firstRow);
+    titleRow.font = { bold: true, size: 14 };
+
+    const secondRow = [''];
+    secondRow.push(`Fecha generación: ${new Date().toLocaleString('es-BO')}`);
+    secondRow.push(`Generado por: ${usuario || 'desconocido'}`);
+    for (const f of filtroLines) secondRow.push(f);
+    sheet.addRow(secondRow);
+    sheet.addRow([]);
+
+    // Headers de tabla
+    const headers = ['Nro', 'Código', 'Producto', 'Categoría', 'Marca', 'Cant. Vendida', 'Stock Actual', 'Total Ingresos', 'Ganancia Neta'];
+    const colKeys = ['nro', 'codigo', 'producto', 'categoria', 'marca', 'cant_vendida', 'stock', 'ingresos', 'ganancia'];
+    const colWidths = [8, 15, 30, 20, 20, 15, 12, 15, 15];
+    
+    sheet.columns = colKeys.map((key, idx) => ({ key, width: colWidths[idx] }));
+    
+    const headerRow = sheet.addRow(headers);
+    headerRow.eachCell((cell, colNumber) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDFF2E6' } };
+      cell.font = { bold: true };
+    });
+
+    // Agregar datos
+    resultados.forEach((item, index) => {
+      const ganancia_neta = parseFloat(item.ganancia_neta) || 0;
+      const total_ingresos = parseFloat(item.total_ingresos) || 0;
+      const stock = parseInt(item.producto.stock) || 0;
+      const cantidad_vendida = parseInt(item.total_vendido) || 0;
+
+      const rowData = [
+        index + 1,
+        safeText(item.producto.codigo),
+        safeText(item.producto.nombre),
+        safeText(item.producto.categorium?.nombre),
+        safeText(item.producto.marca?.nombre),
+        cantidad_vendida,
+        stock,
+        total_ingresos,
+        ganancia_neta
+      ];
+
+      const row = sheet.addRow(rowData);
+      row.getCell(8).numFmt = '#,##0.00';
+      row.getCell(9).numFmt = '#,##0.00';
+      
+      // Color verde para ganancias positivas, rojo para negativas
+      if (ganancia_neta >= 0) {
+        row.getCell(9).font = { color: { argb: 'FF00AA00' }, bold: true };
+      } else {
+        row.getCell(9).font = { color: { argb: 'FFAA0000' }, bold: true };
+      }
+    });
+
+    // Fila de totales
+    const totalesRow = sheet.addRow([
+      '',
+      'TOTALES',
+      '',
+      '',
+      '',
+      totalCantidadVendida,
+      totalStockActual,
+      totalIngresos,
+      totalGananciaNeta
+    ]);
+    
+    totalesRow.eachCell((cell, colNumber) => {
+      if (colNumber >= 2) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFAED6F1' } };
+        cell.font = { bold: true };
+      }
+    });
+    totalesRow.getCell(8).numFmt = '#,##0.00';
+    totalesRow.getCell(9).numFmt = '#,##0.00';
+
+    // Generar y enviar
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_tendencia_${Date.now()}.xlsx`);
+    
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.log('Error en tendenciaXlsx:', error);
+    return res.status(500).json({ 
+      mensaje: 'Error al generar reporte XLSX de tendencia', 
+      error: error.message 
+    });
+  }
+};
 
 module.exports = {
   obtenerDatosTendencia,
-  tendenciaPDF
+  tendenciaPDF,
+  tendenciaXlsx
 };
