@@ -15,7 +15,7 @@ router.post('/reporteVentas-resumido', reporteVentasResumido)
 router.post('/reporteVentas-resumido/xlsx', reporteVentasResumidoXlsx)
 
 // Obtener datos de ventas detallado (JSON para vista previa)
-router.get('/reporteVentas-detallado/datos', obtenerDatosVentasDetallado)
+router.get('/reporteVentas-detallado/datos', obtenerDatosVentasDetallado)//no usado
 
 // Reporte de ventas detallado (PDF - con productos de cada venta)
 router.post('/reporteVentas-detallado', reporteVentasDetallado)

@@ -79,19 +79,6 @@ const movimientos = async (req, res) => {
           ];
         }
         
-        // Construir filtros para venta (fecha_registro)
-        const whereVenta = { estado: 1 };
-        
-        if (desde && String(desde).trim() !== '') {
-          whereVenta.fecha_registro = whereVenta.fecha_registro || {};
-          whereVenta.fecha_registro[Op.gte] = String(desde).trim();
-        }
-        
-        if (hasta && String(hasta).trim() !== '') {
-          whereVenta.fecha_registro = whereVenta.fecha_registro || {};
-          whereVenta.fecha_registro[Op.lte] = String(hasta).trim() + ' 23:59:59';
-        }
-        
         // Construir condiciones SQL para subconsultas
         let fechaCondicionVenta = '';
         if (desde && hasta) {
@@ -120,90 +107,86 @@ const movimientos = async (req, res) => {
           fechaCondicionInventario = `AND inv.fecha_registro <= '${hasta} 23:59:59'`;
         }
         
-        const resultados = await db.det_venta.findAll({
-      attributes: [
-        'id_producto',
-        [Sequelize.literal(`(
-          COALESCE(SUM(CASE WHEN "ventum"."estado" = 1 THEN "det_venta"."cantidad" ELSE 0 END), 0) + 
-          COALESCE((
-            SELECT SUM(inv.cantidad)
-            FROM inventario inv
-            WHERE inv.id_producto = det_venta.id_producto
-            AND inv.estado = 1
-            AND inv.tipo_movimiento = 1
-            ${fechaCondicionInventario}
-          ), 0)
-        )`), 'salidas'],
-        [Sequelize.literal(`(
-          COALESCE((
-            SELECT SUM(dc.cantidad)
-            FROM det_compra dc
-            INNER JOIN compra c ON dc.id_compra = c.id_compra
-            WHERE dc.id_producto = det_venta.id_producto
-            AND c.estado = 1
-            ${fechaCondicionCompra}
-          ), 0) +
-          COALESCE((
-            SELECT SUM(inv.cantidad)
-            FROM inventario inv
-            WHERE inv.id_producto = det_venta.id_producto
-            AND inv.estado = 1
-            AND inv.tipo_movimiento = 2
-            ${fechaCondicionInventario}
-          ), 0)
-        )`), 'entradas'],
-      [Sequelize.fn('SUM',
-  Sequelize.literal(`
-    CASE 
-      WHEN "ventum"."tipo_venta" = 2 
-      THEN (
-        (("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
-          * ((("ventum"."monto_total" - "ventum"."descuento")::numeric / "ventum"."monto_total"))
-        )
-        - ((("ventum"."monto_total" - "ventum"."descuento") * 0.13) * ("det_venta"."sub_total" / "ventum"."monto_total"))
-      )
-      ELSE (
-        ("det_venta"."sub_total" - ("det_venta"."precio_compra" * "det_venta"."cantidad"))
-          * ((("ventum"."monto_total" - "ventum"."descuento")::numeric / "ventum"."monto_total"))
-      )
-    END
-  `)
-), 'ganancia_neta']
-      ],
-      include: [
-        {
-          model: db.venta,
-          attributes: [],
-          where: whereVenta,
-          required: true
-        },
-        {
-          model: db.producto,
-          attributes: ['codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock','estado'],
+        const resultados = await db.producto.findAll({
           where: whereProducto,
-          required: true,
+          attributes: [
+            'id_producto', 'codigo', 'nombre', 'precio_compra', 'precio_venta', 'stock', 'estado',
+            [Sequelize.literal(`(
+              COALESCE((
+                SELECT SUM(dv.cantidad)
+                FROM det_venta dv
+                INNER JOIN venta v ON dv.id_venta = v.id_venta
+                WHERE dv.id_producto = "producto"."id_producto"
+                AND v.estado = 1
+                ${fechaCondicionVenta}
+              ), 0) +
+              COALESCE((
+                SELECT SUM(inv.cantidad)
+                FROM inventario inv
+                WHERE inv.id_producto = "producto"."id_producto"
+                AND inv.estado = 1
+                AND inv.tipo_movimiento = 1
+                ${fechaCondicionInventario}
+              ), 0)
+            )`), 'salidas'],
+            [Sequelize.literal(`(
+              COALESCE((
+                SELECT SUM(dc.cantidad)
+                FROM det_compra dc
+                INNER JOIN compra c ON dc.id_compra = c.id_compra
+                WHERE dc.id_producto = "producto"."id_producto"
+                AND c.estado = 1
+                ${fechaCondicionCompra}
+              ), 0) +
+              COALESCE((
+                SELECT SUM(inv.cantidad)
+                FROM inventario inv
+                WHERE inv.id_producto = "producto"."id_producto"
+                AND inv.estado = 1
+                AND inv.tipo_movimiento = 2
+                ${fechaCondicionInventario}
+              ), 0)
+            )`), 'entradas'],
+            [Sequelize.literal(`(
+              SELECT COALESCE(SUM(
+                CASE
+                  WHEN v.tipo_venta = 2
+                  THEN (
+                    (dv.sub_total - (dv.precio_compra * dv.cantidad))
+                      * ((v.monto_total - v.descuento)::numeric / NULLIF(v.monto_total, 0))
+                    - ((v.monto_total - v.descuento) * 0.13 * (dv.sub_total / NULLIF(v.monto_total, 0)))
+                  )
+                  ELSE (
+                    (dv.sub_total - (dv.precio_compra * dv.cantidad))
+                      * ((v.monto_total - v.descuento)::numeric / NULLIF(v.monto_total, 0))
+                  )
+                END
+              ), 0)
+              FROM det_venta dv
+              INNER JOIN venta v ON dv.id_venta = v.id_venta
+              WHERE dv.id_producto = "producto"."id_producto"
+              AND v.estado = 1
+              ${fechaCondicionVenta}
+            )`), 'ganancia_neta'],
+          ],
           include: [
             {
               model: db.categoria,
-              attributes: ['nombre'],
-              required: false
+              required: false,
             },
             {
               model: db.marca,
-              attributes: ['nombre'],
-              required: false
-            }
-          ]
-        }
-      ],
-      group: ['det_venta.id_producto', 'producto.id_producto', 'producto.codigo', 'producto.nombre','producto.estado', 
-              'producto.precio_compra', 'producto.precio_venta', 'producto.stock', 
-              'producto->categorium.id_categoria', 'producto->categorium.nombre',
-              'producto->marca.id_marca', 'producto->marca.nombre'],
-      order: [[Sequelize.literal('ganancia_neta'), 'DESC']],
-      raw: true,
-      nest: true
-    });
+              required: false,
+            },
+            {
+              model: db.unidad_medida,
+              required: false,
+            },
+          ],
+          order: [[Sequelize.literal('ganancia_neta'), 'DESC']],
+          raw: true,
+          nest: true,
+        });
 
     return res.status(200).json(resultados);
 
@@ -267,7 +250,7 @@ const kardex = async (req, res) => {
       include: [
         {
           model: db.venta,
-          attributes: ['estado', 'nro_venta', 'fecha_registro'],
+          attributes: ['estado', 'nro_venta', 'fecha_registro','tipo_venta','id_venta'],
           required: true,
           include: [
             {
@@ -345,7 +328,7 @@ const kardex = async (req, res) => {
     });
 
     // Procesar ventas
-    ventas.forEach(item => {
+    for (const item of ventas) {
       const esValido = item.ventum?.estado === 1;
       
       // Sumar a salidas válidas
@@ -353,11 +336,21 @@ const kardex = async (req, res) => {
         totalSalidasValidas += parseFloat(item.cantidad) || 0;
       }
 
+      // Referencia: si es venta facturada (tipo_venta=2), buscar nro_factura
+      let referencia = item.ventum?.nro_venta || null;
+      
+      if (Number(item.ventum?.tipo_venta) === 2 && item.ventum?.id_venta) {
+        const fc = await db.factura.findOne({ where: { id_venta: item.ventum.id_venta } }).catch(() => null);
+        if (fc?.nro_factura) {
+          referencia = 'Fac. ' + fc.nro_factura;
+        }
+      }
+
       movimientos.push({
         tipo: 'Venta',
         estado: esValido ? 'valido' : 'invalido',
         movimiento: `-${item.cantidad}`,
-        referencia: item.ventum?.nro_venta || null,
+        referencia,
         fecha: item.ventum?.fecha_registro || null,
         responsable: item.ventum?.usuario_registro?.id_usuario ? {
           id_usuario: item.ventum.usuario_registro.id_usuario,
@@ -367,7 +360,7 @@ const kardex = async (req, res) => {
             : item.ventum.usuario_registro.usuario
         } : null
       });
-    });
+    }
 
     // Procesar ajustes de inventario
     ajustes.forEach(item => {
