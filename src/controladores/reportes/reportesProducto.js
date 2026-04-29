@@ -9,7 +9,7 @@ const { Op, Sequelize, literal } = require("sequelize");
 const reporteInventario = async (req, res) => {
   try {
     console.log("Generando reporte de inventario...",req.body);
-    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo } = req.body;
+    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo, sinVentas } = req.body;
 
     // Buscar nombres para filtros
     let nombreCategoriaFiltro = null;
@@ -67,6 +67,26 @@ const reporteInventario = async (req, res) => {
     // Convertir a objetos planos
     const productos = productosRaw.map(p => p.get ? p.get({ plain: true }) : p);
 
+    // Filtrar productos sin ventas si se solicita
+    let productosFiltrados = productos;
+    if (sinVentas === true || sinVentas === 'true') {
+      // Obtener IDs de productos que tienen ventas válidas (estado=1)
+      const productosConVentas = await db.det_venta.findAll({
+        attributes: ['id_producto'],
+        include: [{
+          model: db.venta,
+          attributes: [],
+          where: { estado: 1 },
+          required: true
+        }],
+        group: ['det_venta.id_producto'],
+        raw: true
+      });
+      
+      const idsConVentas = productosConVentas.map(d => d.id_producto);
+      productosFiltrados = productos.filter(p => !idsConVentas.includes(p.id_producto));
+    }
+
     // Helper para texto seguro
     const safeText = (v) => {
       if (v === undefined || v === null) return "";
@@ -91,15 +111,16 @@ const reporteInventario = async (req, res) => {
     if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
     if (id_unidad_medida && nombreUnidadFiltro) filtroLines.push(`Unidad de Medida: ${nombreUnidadFiltro}`);
     if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') filtroLines.push(`Stock <= ${stock_minimo}`);
+    if (sinVentas === true || sinVentas === 'true') filtroLines.push('Productos sin ventas');
     if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
 
     // Calcular totales
-    const totalProductos = productos.length;
-    const productosActivos = productos.filter(p => p.estado === 1).length;
-    const productosInactivos = productos.filter(p => p.estado !== 1).length;
-    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
-    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
-    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
+    const totalProductos = productosFiltrados.length;
+    const productosActivos = productosFiltrados.filter(p => p.estado === 1).length;
+    const productosInactivos = productosFiltrados.filter(p => p.estado !== 1).length;
+    const totalStock = productosFiltrados.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const valorInventarioCompra = productosFiltrados.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const valorInventarioVenta = productosFiltrados.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
     const gananciaPotencial = valorInventarioVenta - valorInventarioCompra;
     const margenGananciaTotal = valorInventarioCompra > 0 
       ? ((gananciaPotencial / valorInventarioCompra) * 100).toFixed(2)
@@ -122,7 +143,7 @@ const reporteInventario = async (req, res) => {
       ]
     ];
 
-    productos.forEach((producto) => {
+    productosFiltrados.forEach((producto) => {
       const precioCompra = parseFloat(producto.precio_compra) || 0;
       const precioVenta = parseFloat(producto.precio_venta) || 0;
       const margenProducto = precioCompra > 0 
@@ -868,7 +889,8 @@ const reporteGananciasProducto = async (req, res) => {
 // Obtener datos de inventario para vista previa (sin generar PDF)
 const obtenerDatosInventario = async (req, res) => {
   try {
-    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo } = req.body;
+    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo, sinVentas } = req.body;
+console.log('datos de inventario: ',req.body);
 
     // Construir filtros
     let whereClause = {};
@@ -907,20 +929,40 @@ const obtenerDatosInventario = async (req, res) => {
     // Convertir a objetos planos
     const productos = productosRaw.map(p => p.get ? p.get({ plain: true }) : p);
 
+    // Filtrar productos sin ventas si se solicita
+    let productosFiltrados = productos;
+    if (sinVentas === true || sinVentas === 'true') {
+      // Obtener IDs de productos que tienen ventas válidas (estado=1)
+      const productosConVentas = await db.det_venta.findAll({
+        attributes: ['id_producto'],
+        include: [{
+          model: db.venta,
+          attributes: [],
+          where: { estado: 1 },
+          required: true
+        }],
+        group: ['det_venta.id_producto'],
+        raw: true
+      });
+      
+      const idsConVentas = productosConVentas.map(d => d.id_producto);
+      productosFiltrados = productos.filter(p => !idsConVentas.includes(p.id_producto));
+    }
+
     // Calcular totales
-    const totalProductos = productos.length;
-    const productosActivos = productos.filter(p => p.estado === 1).length;
-    const productosInactivos = productos.filter(p => p.estado !== 1).length;
-    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
-    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
-    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
+    const totalProductos = productosFiltrados.length;
+    const productosActivos = productosFiltrados.filter(p => p.estado === 1).length;
+    const productosInactivos = productosFiltrados.filter(p => p.estado !== 1).length;
+    const totalStock = productosFiltrados.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const valorInventarioCompra = productosFiltrados.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const valorInventarioVenta = productosFiltrados.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
     const gananciaPotencial = valorInventarioVenta - valorInventarioCompra;
     const margenGananciaTotal = valorInventarioCompra > 0 
       ? ((gananciaPotencial / valorInventarioCompra) * 100).toFixed(2)
       : '0.00';
 
     // Preparar productos con margen calculado
-    const productosConMargen = productos.map((producto) => {
+    const productosConMargen = productosFiltrados.map((producto) => {
       const precioCompra = parseFloat(producto.precio_compra) || 0;
       const precioVenta = parseFloat(producto.precio_venta) || 0;
       const margenProducto = precioCompra > 0 
@@ -988,7 +1030,7 @@ const obtenerDatosInventario = async (req, res) => {
 const reporteInventarioXlsx = async (req, res) => {
   try {
     const ExcelJS = require('exceljs');
-    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo } = req.body;
+    const { id_categoria, id_marca, estado, busqueda, id_unidad_medida, stock_minimo, sinVentas } = req.body;
 
     // Buscar nombres para filtros
     let nombreCategoriaFiltro = null;
@@ -1044,6 +1086,26 @@ const reporteInventarioXlsx = async (req, res) => {
 
     const productos = productosRaw.map(p => p.get ? p.get({ plain: true }) : p);
 
+    // Filtrar productos sin ventas si se solicita
+    let productosFiltrados = productos;
+    if (sinVentas === true || sinVentas === 'true') {
+      // Obtener IDs de productos que tienen ventas válidas (estado=1)
+      const productosConVentas = await db.det_venta.findAll({
+        attributes: ['id_producto'],
+        include: [{
+          model: db.venta,
+          attributes: [],
+          where: { estado: 1 },
+          required: true
+        }],
+        group: ['det_venta.id_producto'],
+        raw: true
+      });
+      
+      const idsConVentas = productosConVentas.map(d => d.id_producto);
+      productosFiltrados = productos.filter(p => !idsConVentas.includes(p.id_producto));
+    }
+
     const safeText = (v) => {
       if (v === undefined || v === null) return "";
       if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
@@ -1064,15 +1126,16 @@ const reporteInventarioXlsx = async (req, res) => {
     if (busqueda) filtroLines.push(`Búsqueda: ${busqueda}`);
     if (id_unidad_medida && nombreUnidadFiltro) filtroLines.push(`Unidad de Medida: ${nombreUnidadFiltro}`);
     if (stock_minimo !== undefined && stock_minimo !== null && stock_minimo !== '') filtroLines.push(`Stock <= ${stock_minimo}`);
+    if (sinVentas === true || sinVentas === 'true') filtroLines.push('Productos sin ventas');
     if (filtroLines.length === 0) filtroLines.push('Sin filtros aplicados');
 
     // Calcular totales
-    const totalProductos = productos.length;
-    const productosActivos = productos.filter(p => p.estado === 1).length;
-    const productosInactivos = productos.filter(p => p.estado !== 1).length;
-    const totalStock = productos.reduce((sum, p) => sum + (p.stock || 0), 0);
-    const valorInventarioCompra = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
-    const valorInventarioVenta = productos.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
+    const totalProductos = productosFiltrados.length;
+    const productosActivos = productosFiltrados.filter(p => p.estado === 1).length;
+    const productosInactivos = productosFiltrados.filter(p => p.estado !== 1).length;
+    const totalStock = productosFiltrados.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const valorInventarioCompra = productosFiltrados.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_compra || 0)), 0);
+    const valorInventarioVenta = productosFiltrados.reduce((sum, p) => sum + ((p.stock || 0) * (p.precio_venta || 0)), 0);
     const gananciaPotencial = valorInventarioVenta - valorInventarioCompra;
     const margenGananciaTotal = valorInventarioCompra > 0 
       ? ((gananciaPotencial / valorInventarioCompra) * 100).toFixed(2)
@@ -1127,7 +1190,7 @@ const reporteInventarioXlsx = async (req, res) => {
     });
 
     // Agregar productos
-    productos.forEach((producto) => {
+    productosFiltrados.forEach((producto) => {
       const precioCompra = parseFloat(producto.precio_compra) || 0;
       const precioVenta = parseFloat(producto.precio_venta) || 0;
       const margenProducto = precioCompra > 0 

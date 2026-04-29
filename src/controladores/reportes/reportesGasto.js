@@ -418,7 +418,7 @@ const obtenerDatosGastos = async (req, res) => {
       hasta
     } = req.query;
     
-    console.log('Obtener datos de gastos - parámetros:', req.query);
+    console.log('Obtener datos de gastos - parámetros:', req.body);
     
     // Construir filtros para gastos
     const whereGasto = {};
@@ -627,5 +627,352 @@ const obtenerDatosGastos = async (req, res) => {
     });
   }
 };
+const reporteGastosXlsx = async (req, res) => {
+  try {
+    const ExcelJS = require("exceljs");
 
-module.exports = { reporteGastos, obtenerDatosGastos };
+    const {
+      id_usuario,
+      id_categoria,
+      estado,
+      desde,
+      hasta,
+      usuario = '',
+      nombreSistema = 'TarijaSport'
+    } = req.body || {};
+
+    // Construir filtros
+    const whereGasto = {};
+    if (id_usuario && String(id_usuario).trim() !== '') {
+      whereGasto.id_usuario = parseInt(id_usuario);
+    }
+    if (id_categoria !== undefined && id_categoria !== null && String(id_categoria).trim() !== '') {
+      whereGasto.categoria = parseInt(id_categoria);
+    }
+    if (estado !== undefined && estado !== null && String(estado).trim() !== '') {
+      whereGasto.estado = parseInt(estado);
+    }
+    if (desde && String(desde).trim() !== '') {
+      whereGasto.fecha = whereGasto.fecha || {};
+      whereGasto.fecha[Op.gte] = String(desde).trim();
+    }
+    if (hasta && String(hasta).trim() !== '') {
+      whereGasto.fecha = whereGasto.fecha || {};
+      whereGasto.fecha[Op.lte] = String(hasta).trim();
+    }
+
+    const gastosRaw = await db.gasto.findAll({
+      where: whereGasto,
+      order: [["fecha", "ASC"], ["id_gasto", "ASC"]],
+      include: [
+        {
+          model: db.usuario,
+          required: false,
+          include: [{ model: db.empleado, required: false }]
+        }
+      ]
+    });
+
+    const gastos = gastosRaw.map(g => g.get ? g.get({ plain: true }) : g);
+
+    // Agrupar por mes y calcular totales
+    const gastosPorMes = {};
+    const gastosPorUsuario = {};
+    let totalValidos = 0, totalAnulados = 0, cantidadValidos = 0, cantidadAnulados = 0, totalGeneral = 0;
+
+    gastos.forEach(gasto => {
+      const mesKey = getMesAnioKey(gasto.fecha);
+      const mesNombre = getNombreMes(gasto.fecha);
+      const monto = parseFloat(gasto.monto) || 0;
+
+      if (!gastosPorMes[mesKey]) {
+        gastosPorMes[mesKey] = { nombre: mesNombre, gastos: [], total: 0 };
+      }
+      gastosPorMes[mesKey].gastos.push(gasto);
+      gastosPorMes[mesKey].total += monto;
+      totalGeneral += monto;
+
+      if (gasto.estado === 1) { totalValidos += monto; cantidadValidos++; }
+      else { totalAnulados += monto; cantidadAnulados++; }
+
+      const uid = gasto.id_usuario || 'sin_usuario';
+      if (!gastosPorUsuario[uid]) {
+        const nombreUsr = gasto.usuario?.empleado
+          ? `${gasto.usuario.empleado.nombre || ''} ${gasto.usuario.empleado.ap_paterno || ''}`.trim()
+          : (gasto.usuario?.usuario || 'Sin usuario');
+        gastosPorUsuario[uid] = { nombre: nombreUsr, total: 0, cantidad: 0, totalValidos: 0, cantidadValidos: 0, totalAnulados: 0, cantidadAnulados: 0 };
+      }
+      gastosPorUsuario[uid].total += monto;
+      gastosPorUsuario[uid].cantidad++;
+      if (gasto.estado === 1) { gastosPorUsuario[uid].totalValidos += monto; gastosPorUsuario[uid].cantidadValidos++; }
+      else { gastosPorUsuario[uid].totalAnulados += monto; gastosPorUsuario[uid].cantidadAnulados++; }
+    });
+
+    // Armar líneas de filtro para cabecera
+    const filtroLines = [];
+    if (id_usuario) {
+      const gFiltrado = gastos.find(g => g.id_usuario == id_usuario);
+      if (gFiltrado) {
+        const nUsr = gFiltrado.usuario?.empleado
+          ? `${gFiltrado.usuario.empleado.nombre || ''} ${gFiltrado.usuario.empleado.ap_paterno || ''}`.trim()
+          : gFiltrado.usuario?.usuario;
+        filtroLines.push(`Usuario: ${nUsr}`);
+      }
+    }
+    if (id_categoria !== undefined && id_categoria !== null && String(id_categoria).trim() !== '') {
+      filtroLines.push(`Categoría: ${id_categoria}`);
+    }
+    if (estado !== undefined && estado !== null && String(estado).trim() !== '') {
+      filtroLines.push(`Estado: ${parseInt(estado) === 1 ? 'Válido' : 'Anulado'}`);
+    }
+    if (desde) filtroLines.push(`Desde: ${desde}`);
+    if (hasta) filtroLines.push(`Hasta: ${hasta}`);
+    if (!filtroLines.length) filtroLines.push('Todos los gastos');
+
+    // Colores ARGB
+    const COLOR = {
+      headerBg:     'FF2E7D32', // verde oscuro para título
+      headerFg:     'FFFFFFFF',
+      colHeader:    'FF1B5E20', // verde muy oscuro para cabecera de columnas
+      colHeaderFg:  'FFFFFFFF',
+      mesBg:        'FFE8F5E9', // verde pálido para cabecera de mes
+      mesFg:        'FF1B5E20',
+      mesTotalBg:   'FF81C784', // verde medio para total mes
+      generalBg:    'FF1565C0', // azul oscuro para total general
+      generalFg:    'FFFFFFFF',
+      validoBg:     'FFD5F5E3', // verde suave
+      anuladoBg:    'FFFDEDEC', // rojo suave
+      estadoHdrBg:  'FF0D47A1', // azul marino para cabecera sección estado
+      estadoHdrFg:  'FFFFFFFF',
+      usuarioHdrBg: 'FF4A148C', // violeta para cabecera sección usuario
+      usuarioHdrFg: 'FFFFFFFF',
+      usuarioRowBg: 'FFEDE7F6', // violeta pálido para filas usuario
+      usuarioColHdrBg: 'FF7B1FA2',
+      usuarioColHdrFg: 'FFFFFFFF',
+      altRow:       'FFF1F8E9', // verde muy pálido filas alternadas
+      filterBg:     'FFFFF9C4', // amarillo pálido para filtros
+      subtitleBg:   'FFE3F2FD', // azul muy pálido
+    };
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = nombreSistema;
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Gastos');
+    const NUM_COLS = 7;
+
+    const applyCellStyle = (cell, bgArgb, fgArgb, bold = false, size = 10, hAlign = 'left') => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+      cell.font = { bold, size, color: { argb: fgArgb || 'FF000000' } };
+      cell.alignment = { horizontal: hAlign, vertical: 'middle', wrapText: true };
+    };
+
+    const mergeAndStyle = (rowNum, colStart, colEnd, value, bgArgb, fgArgb, bold, size, hAlign) => {
+      if (colStart < colEnd) sheet.mergeCells(rowNum, colStart, rowNum, colEnd);
+      const cell = sheet.getCell(rowNum, colStart);
+      cell.value = value;
+      applyCellStyle(cell, bgArgb, fgArgb, bold, size, hAlign);
+      return cell;
+    };
+
+    // Anchos de columna
+    sheet.columns = [
+      { key: 'nro',        width: 6  },
+      { key: 'fecha',      width: 20 },
+      { key: 'usuario',    width: 26 },
+      { key: 'categoria',  width: 14 },
+      { key: 'descripcion',width: 34 },
+      { key: 'estado',     width: 10 },
+      { key: 'monto',      width: 16 }
+    ];
+
+    // ── FILA 1: Título ──────────────────────────────────────────────────────
+    const tRow = sheet.addRow([]);
+    mergeAndStyle(tRow.number, 1, NUM_COLS, 'Reporte de Gastos - Agrupado por Meses', COLOR.headerBg, COLOR.headerFg, true, 14, 'center');
+    tRow.height = 30;
+
+    // ── FILA 2: Subtítulo con sistema y usuario ──────────────────────────────
+    const sRow = sheet.addRow([]);
+    mergeAndStyle(sRow.number, 1, NUM_COLS,
+      `${nombreSistema}   |   Generado por: ${usuario || 'desconocido'}   |   Fecha: ${new Date().toLocaleString('es-BO')}`,
+      COLOR.subtitleBg, 'FF1565C0', false, 9, 'center');
+    sRow.height = 16;
+
+    // ── FILA 3: Filtros ──────────────────────────────────────────────────────
+    const fRow = sheet.addRow([]);
+    mergeAndStyle(fRow.number, 1, NUM_COLS, `Filtros: ${filtroLines.join('   |   ')}`, COLOR.filterBg, 'FF795548', false, 9, 'left');
+    fRow.height = 16;
+
+    // ── FILA 4: Vacía ────────────────────────────────────────────────────────
+    sheet.addRow([]);
+
+    // ── FILA 5: Cabecera de columnas ─────────────────────────────────────────
+    const hRow = sheet.addRow(['Nro', 'Fecha y Hora', 'Usuario', 'Categoría', 'Descripción', 'Estado', 'Monto']);
+    hRow.height = 18;
+    hRow.eachCell((cell, colNum) => {
+      applyCellStyle(cell, COLOR.colHeader, COLOR.colHeaderFg, true, 10,
+        colNum === 7 ? 'right' : colNum === 4 || colNum === 6 ? 'center' : 'left');
+      cell.border = { bottom: { style: 'medium', color: { argb: 'FF1B5E20' } } };
+    });
+
+    // ── DATOS agrupados por mes ──────────────────────────────────────────────
+    let contador = 1;
+    const mesesOrdenados = Object.keys(gastosPorMes).sort();
+
+    mesesOrdenados.forEach(mesKey => {
+      const datosMes = gastosPorMes[mesKey];
+
+      // Cabecera mes
+      const mHRow = sheet.addRow([]);
+      mHRow.height = 20;
+      mergeAndStyle(mHRow.number, 1, NUM_COLS, `  ${datosMes.nombre}`, COLOR.mesBg, COLOR.mesFg, true, 11, 'left');
+      mHRow.getCell(1).border = { top: { style: 'thin', color: { argb: 'FF81C784' } }, bottom: { style: 'thin', color: { argb: 'FF81C784' } } };
+
+      let isOdd = true;
+      datosMes.gastos.forEach(gasto => {
+        const nombreUsr = gasto.usuario?.empleado
+          ? `${gasto.usuario.empleado.nombre || ''} ${gasto.usuario.empleado.ap_paterno || ''}`.trim()
+          : (gasto.usuario?.usuario || 'Sin usuario');
+        const estadoText = gasto.estado === 1 ? 'Válido' : 'Anulado';
+        const monto = parseFloat(gasto.monto) || 0;
+        const rowBg = isOdd ? 'FFFFFFFF' : COLOR.altRow;
+        const estadoBg = gasto.estado === 1 ? COLOR.validoBg : COLOR.anuladoBg;
+        const estadoFg = gasto.estado === 1 ? 'FF2E7D32' : 'FFC62828';
+
+        const dr = sheet.addRow([
+          contador,
+          formatFechaHora(gasto.fecha),
+          nombreUsr,
+          String(gasto.categoria || ''),
+          gasto.descripcion || '',
+          estadoText,
+          monto
+        ]);
+        dr.height = 15;
+
+        dr.eachCell((cell, col) => {
+          applyCellStyle(cell, rowBg, 'FF212121', false, 9,
+            col === 1 ? 'center' : col === 4 || col === 6 ? 'center' : col === 7 ? 'right' : 'left');
+        });
+        // Colorear celda de estado
+        applyCellStyle(dr.getCell(6), estadoBg, estadoFg, true, 9, 'center');
+        dr.getCell(7).numFmt = '#,##0.00';
+
+        isOdd = !isOdd;
+        contador++;
+      });
+
+      // Total del mes
+      const tMesRow = sheet.addRow([]);
+      tMesRow.height = 16;
+      mergeAndStyle(tMesRow.number, 1, 6, `Total ${datosMes.nombre}`, COLOR.mesTotalBg, 'FF1B5E20', true, 9, 'right');
+      const tMesCell = tMesRow.getCell(7);
+      tMesCell.value = datosMes.total;
+      tMesCell.numFmt = '#,##0.00';
+      applyCellStyle(tMesCell, COLOR.mesTotalBg, 'FF1B5E20', true, 9, 'right');
+      tMesRow.getCell(1).border = { top: { style: 'thin', color: { argb: 'FF4CAF50' } } };
+    });
+
+    // ── TOTAL GENERAL ────────────────────────────────────────────────────────
+    sheet.addRow([]);
+    const tgRow = sheet.addRow([]);
+    tgRow.height = 22;
+    mergeAndStyle(tgRow.number, 1, 6, 'TOTAL GENERAL', COLOR.generalBg, COLOR.generalFg, true, 12, 'center');
+    const tgCell = tgRow.getCell(7);
+    tgCell.value = totalGeneral;
+    tgCell.numFmt = '#,##0.00';
+    applyCellStyle(tgCell, COLOR.generalBg, COLOR.generalFg, true, 12, 'right');
+
+    // ── SECCIÓN: TOTALES POR ESTADO ──────────────────────────────────────────
+    sheet.addRow([]);
+    const estTitleRow = sheet.addRow([]);
+    estTitleRow.height = 20;
+    mergeAndStyle(estTitleRow.number, 1, NUM_COLS, 'TOTALES POR ESTADO', COLOR.estadoHdrBg, COLOR.estadoHdrFg, true, 11, 'center');
+
+    // Sub-cabecera
+    const estHdr = sheet.addRow(['Estado', '', '', '', 'Cantidad', 'Monto', '']);
+    estHdr.height = 16;
+    [1,5,6].forEach(c => {
+      const cell = estHdr.getCell(c);
+      applyCellStyle(cell, 'FF0D47A1', 'FFFFFFFF', true, 9,
+        c === 5 ? 'center' : c === 6 ? 'right' : 'left');
+    });
+    sheet.mergeCells(estHdr.number, 1, estHdr.number, 4);
+    sheet.mergeCells(estHdr.number, 6, estHdr.number, 7);
+
+    // Válidos
+    const vRow = sheet.addRow(['Válido', '', '', '', cantidadValidos, totalValidos, '']);
+    vRow.height = 15;
+    mergeAndStyle(vRow.number, 1, 4, 'Válido', COLOR.validoBg, 'FF2E7D32', true, 9, 'left');
+    vRow.getCell(5).value = cantidadValidos;
+    applyCellStyle(vRow.getCell(5), COLOR.validoBg, 'FF2E7D32', false, 9, 'center');
+    vRow.getCell(6).value = totalValidos;
+    vRow.getCell(6).numFmt = '#,##0.00';
+    applyCellStyle(vRow.getCell(6), COLOR.validoBg, 'FF2E7D32', true, 9, 'right');
+    sheet.mergeCells(vRow.number, 6, vRow.number, 7);
+
+    // Anulados
+    const anRow = sheet.addRow(['Anulado', '', '', '', cantidadAnulados, totalAnulados, '']);
+    anRow.height = 15;
+    mergeAndStyle(anRow.number, 1, 4, 'Anulado', COLOR.anuladoBg, 'FFC62828', true, 9, 'left');
+    anRow.getCell(5).value = cantidadAnulados;
+    applyCellStyle(anRow.getCell(5), COLOR.anuladoBg, 'FFC62828', false, 9, 'center');
+    anRow.getCell(6).value = totalAnulados;
+    anRow.getCell(6).numFmt = '#,##0.00';
+    applyCellStyle(anRow.getCell(6), COLOR.anuladoBg, 'FFC62828', true, 9, 'right');
+    sheet.mergeCells(anRow.number, 6, anRow.number, 7);
+
+    // ── SECCIÓN: RESUMEN POR USUARIO ─────────────────────────────────────────
+    if (!id_usuario || String(id_usuario).trim() === '') {
+      sheet.addRow([]);
+      const usrTitleRow = sheet.addRow([]);
+      usrTitleRow.height = 20;
+      mergeAndStyle(usrTitleRow.number, 1, NUM_COLS, 'RESUMEN POR USUARIO', COLOR.usuarioHdrBg, COLOR.usuarioHdrFg, true, 11, 'center');
+
+      // Cabecera de columnas usuario
+      const usrHdr = sheet.addRow(['Usuario', 'Válidos (Cant.)', 'Válidos (Monto)', 'Anulados (Cant.)', 'Anulados (Monto)', 'Total Cant.', 'Total Monto']);
+      usrHdr.height = 16;
+      usrHdr.eachCell(cell => {
+        applyCellStyle(cell, COLOR.usuarioColHdrBg, COLOR.usuarioColHdrFg, true, 9, 'center');
+      });
+      usrHdr.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      let usrOdd = true;
+      Object.values(gastosPorUsuario).forEach(datos => {
+        const bg = usrOdd ? COLOR.usuarioRowBg : 'FFFCE4EC';
+        const ur = sheet.addRow([
+          datos.nombre,
+          datos.cantidadValidos,
+          datos.totalValidos,
+          datos.cantidadAnulados,
+          datos.totalAnulados,
+          datos.cantidad,
+          datos.total
+        ]);
+        ur.height = 15;
+        ur.eachCell((cell, col) => {
+          applyCellStyle(cell, bg, 'FF4A148C', false, 9,
+            col === 1 ? 'left' : col === 3 || col === 5 || col === 7 ? 'right' : 'center');
+          if (col === 3 || col === 5 || col === 7) cell.numFmt = '#,##0.00';
+          if (col === 6 || col === 7) cell.font = { bold: true, size: 9, color: { argb: 'FF4A148C' } };
+        });
+        usrOdd = !usrOdd;
+      });
+    }
+
+    // Respuesta
+    const buffer = await workbook.xlsx.writeBuffer();
+    const fileName = `reporte_gastos_${Date.now()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+    res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error("Error en reporteGastosXlsx:", error);
+    return res.status(500).json({ 
+      mensaje: "Error al generar el reporte de gastos en Excel", 
+      error: error.message 
+    });
+  }
+}
+module.exports = { reporteGastos, obtenerDatosGastos, reporteGastosXlsx };

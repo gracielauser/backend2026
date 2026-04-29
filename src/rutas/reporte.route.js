@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { reporteFacturas } = require('../controladores/reportes/reportesFactura');
 const { reporteClientes, obtenerDatosClientes } = require('../controladores/reportes/reportesCliente');
-const { reporteGastos, obtenerDatosGastos } = require('../controladores/reportes/reportesGasto');
+const { reporteGastos, obtenerDatosGastos, reporteGastosXlsx } = require('../controladores/reportes/reportesGasto');
 const { reporteInventario, reporteCatalogoProductos, reporteGananciasProducto } = require('../controladores/reportes/reportesProducto');
 const { reporteResultados, obtenerDatosResultados } = require('../controladores/reportes/reportesResultados');
 
@@ -16,10 +16,13 @@ router.post('/clientes/datos', obtenerDatosClientes);
 router.post('/clientes', reporteClientes);
 
 // Obtener datos de gastos (vista previa JSON)
-router.get('/gastos/datos', obtenerDatosGastos);
+router.post('/gastos/datos', obtenerDatosGastos);
 
 // Reporte de gastos agrupado por meses (PDF)
 router.post('/gastos', reporteGastos);
+
+// Reporte de gastos agrupado por meses (XLSX)
+router.post('/gastos/xlsx', reporteGastosXlsx);
 
 // Reporte de inventario de productos
 router.get('/inventario', reporteInventario);

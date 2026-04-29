@@ -36,6 +36,7 @@ const agregar= async (req,res)=>{
 const anular=async(req,res)=>{
     try {
         const gastoAnulado = req.body
+        gastoAnulado.estado = 2
         await db.gasto.update(gastoAnulado,{
             where: {id_gasto: gastoAnulado.id_gasto}
         })
