@@ -233,6 +233,17 @@ const generarNotaVenta = async (venta, res) => {
                       border: [false, false, false, false],
                     },
                   ],
+                  [
+                    {
+                      text: "Pago",
+                      bold: true,
+                      border: [false, false, false, false],
+                    },
+                    {
+                      text: venta.tipo_pago === 1 ? "Efectivo" : "Transferencia bancaria",
+                      border: [false, false, false, false],
+                    },
+                  ],
                 ],
               },
               layout: "noBorders",
@@ -400,6 +411,7 @@ const generarFacturaBoliviana = async (
     // tabla de items
     const itemsHeader = [
       { text: "Nro", bold: true, alignment: "center", fillColor: "#eeeeee" },
+      { text: "Uni. Med.", bold: true, alignment: "center", fillColor: "#eeeeee" },
       { text: "Producto", bold: true, fillColor: "#eeeeee" },
       {
         text: "Cantidad",
@@ -421,7 +433,9 @@ const generarFacturaBoliviana = async (
       },
     ];
 
-    const itemsBody = detalles.map((d, i) => {
+    const itemsBody = [];
+    for (let i = 0; i < detalles.length; i++) {
+      const d = detalles[i];
       const productoNombre = safeText(
         d.producto?.nombre || d.nombre || d.producto,
       );
@@ -429,14 +443,23 @@ const generarFacturaBoliviana = async (
       const precioUnit = Number(d.precio_unitario || d.precio || 0) || 0;
       const subtotalItem =
         Number(d.sub_total || d.subtotal) || cantidad * precioUnit;
-      return [
+
+      let unidadNombre = "";
+      const idUnidad = d.producto?.id_unidad_medida;
+      if (idUnidad) {
+        const unidad = await db.unidad_medida.findByPk(idUnidad, { attributes: ["nombre"] }).catch(() => null);
+        unidadNombre = unidad?.nombre || "";
+      }
+
+      itemsBody.push([
         { text: String(i + 1), alignment: "center" },
+        { text: unidadNombre, alignment: "center" },
         productoNombre,
         { text: String(cantidad), alignment: "center" },
         { text: formatMoney(precioUnit), alignment: "right" },
         { text: formatMoney(subtotalItem), alignment: "right" },
-      ];
-    });
+      ]);
+    }
 
     // Convertir monto a literal
     const montoLiteral = numeroALiteral(totalCalculado);
@@ -578,7 +601,7 @@ const generarFacturaBoliviana = async (
         {
           table: {
             headerRows: 1,
-            widths: [30, "*", 50, 70, 70],
+            widths: [30, 50, "*", 50, 70, 70],
             body: [itemsHeader, ...itemsBody],
           },
           layout: {
